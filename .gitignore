@@ -1,0 +1,14 @@
+*.cmd
+*.old
+*.o
+*.log
+*.symvers
+*.aux
+*.order
+*.ko
+*.swp
+.DS_Store
+shadow_box.mod.c
+.tmp_versions/
+.deps/
+.depend/
