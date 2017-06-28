@@ -79,10 +79,9 @@ def get_symbol_table_from_file(filename):
 
 
 	if (found != len(symbol_list)):
-		print "%s symbol find fail" % filename
-		return None
-
-	print "%s symbol find success" % filename
+		print "    [WARNING] %s symbol find fail" % filename
+	else:
+		print "    [SUCCESS] %s symbol find success" % filename
 
 	return symbol_table
 

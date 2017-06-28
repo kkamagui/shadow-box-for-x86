@@ -490,17 +490,6 @@ static void __exit shadow_box_exit(void)
  */
 static void sb_print_shadow_box_logo(void)
 {
-	/*
-	sb_printf(LOG_LEVEL_NONE, LOG_INFO "   _____ _               _                          _               \n");
-	sb_printf(LOG_LEVEL_NONE, LOG_INFO "  / ____| |             | |                        | |              \n");
-	sb_printf(LOG_LEVEL_NONE, LOG_INFO " | (___ | |__   __ _  __| | _____      __  ______  | |__   _____  __\n");
-	sb_printf(LOG_LEVEL_NONE, LOG_INFO "  \\___ \\| '_ \\ / _` |/ _` |/ _ \\ \\ /\\ / / |______| | '_ \\ / _ \\ \\/ /\n");
-	sb_printf(LOG_LEVEL_NONE, LOG_INFO "  ____) | | | | (_| | (_| | (_) \\ V  V /           | |_) | (_) >  < \n");
-	sb_printf(LOG_LEVEL_NONE, LOG_INFO " |_____/|_| |_|\\__,_|\\__,_|\\___/ \\_/\\_/            |_.__/ \\___/_/\\_\\\n");
-	sb_printf(LOG_LEVEL_NONE, LOG_INFO "     \n");
-	sb_printf(LOG_LEVEL_NONE, LOG_INFO "             Lightweight Hypervisor-based Kernel Protector\n");
-	sb_printf(LOG_LEVEL_NONE, LOG_INFO "     \n");
-	*/
 	sb_printf(LOG_LEVEL_NONE, "     \n");
 	sb_printf(LOG_LEVEL_NONE, "███████╗██╗  ██╗ █████╗ ██████╗  ██████╗ ██╗    ██╗      ██████╗  ██████╗ ██╗  ██╗\n");
 	sb_printf(LOG_LEVEL_NONE, "██╔════╝██║  ██║██╔══██╗██╔══██╗██╔═══██╗██║    ██║      ██╔══██╗██╔═══██╗╚██╗██╔╝\n");
