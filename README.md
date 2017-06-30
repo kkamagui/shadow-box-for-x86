@@ -230,6 +230,8 @@ Shadow-box protects kernel code, read-only data, system table, privilege registe
    * Change kernel config (.config)
  * Disable hibernation and suspend
    * Change system power management setting
+ * Disable IRQ remapping for using IOMMU protection feature
+   * Insert intremap=off at the end of linux /boot/vmlinuz... line in grub.cfg file
  * Disable irqbalance service if you want to enable IOMMU feature of Shadow-box
    * Use "sudo update-rc.d irqbalance disable" command
 
