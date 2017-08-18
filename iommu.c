@@ -14,7 +14,7 @@
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/init.h>
-#include <linux/syscalls.h> 
+#include <linux/syscalls.h>
 #include <linux/dmar.h>
 #include <linux/intel-iommu.h>
 #include <linux/delay.h>
@@ -35,7 +35,7 @@ u32 g_entry_level = ENTRY_4LEVEL_PTE;
 
 static void sb_wait_dmar_operation(u8* reg_remap_addr, int flag);
 
-#if SHADOWBOX_USE_IOMMU_DEBUG 
+#if SHADOWBOX_USE_IOMMU_DEBUG
 /*
  * Parse PTE.
  */
@@ -58,7 +58,7 @@ static void sb_parse_iommu_pte(u64 pte_addr)
 	for (i = 0 ; i < IOMMU_PAGE_ENT_COUNT ; i++)
 	{
 		entry = *(u64*)(remap_addr + i * 8);
-		if (entry != 0)	
+		if (entry != 0)
 		{
 			sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "                    [*] %d "
 				"Addr %016lX\n", i, entry);
@@ -93,11 +93,11 @@ static void sb_parse_iommu_pde(u64 pte_addr)
 	for (i = 0 ; i < IOMMU_PAGE_ENT_COUNT ; i++)
 	{
 		entry = *(u64*)(remap_addr + i * 8);
-		if (entry != 0)	
+		if (entry != 0)
 		{
 			sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "                [*] %d Addr "
 				"%016lX\n", i, entry);
-			
+
 			if ((entry & PS_BIT) == 0)
 			{
 				sb_parse_iommu_pte(entry);
@@ -111,7 +111,7 @@ static void sb_parse_iommu_pde(u64 pte_addr)
 	if (ioremap == true)
 	{
 		iounmap(remap_addr);
-	}	
+	}
 }
 
 /*
@@ -136,11 +136,11 @@ static void sb_parse_iommu_pdpepd(u64 pte_addr)
 	for (i = 0 ; i < IOMMU_PAGE_ENT_COUNT ; i++)
 	{
 		entry = *(u64*)(remap_addr + i * 8);
-		if (entry != 0)	
+		if (entry != 0)
 		{
 			sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "            [*] %d Addr "
 				"%016lX\n", i, (u64)entry);
-			
+
 			if ((entry & PS_BIT) == 0)
 			{
 				sb_parse_iommu_pde(entry);
@@ -151,7 +151,7 @@ static void sb_parse_iommu_pdpepd(u64 pte_addr)
 	if (ioremap == true)
 	{
 		iounmap(remap_addr);
-	}	
+	}
 }
 
 /*
@@ -166,7 +166,7 @@ static void sb_parse_iommu_context_entry(u64 context_addr)
 	remap_addr = (u8*)phys_to_virt(context_addr & MASK_PAGEADDR);
 	if (remap_addr == NULL)
 	{
-		sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "IO Remap Error %016lX\n", 
+		sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "IO Remap Error %016lX\n",
 			(u64)context_addr);
 		return ;
 	}
@@ -177,7 +177,7 @@ static void sb_parse_iommu_context_entry(u64 context_addr)
 				struct context_entry));
 		if (context == NULL)
 		{
-			sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "        [*] %d Entry is null\n", 
+			sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "        [*] %d Entry is null\n",
 				i);
 		}
 		else
@@ -187,11 +187,11 @@ static void sb_parse_iommu_context_entry(u64 context_addr)
 				continue;
 			}
 
-			sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "        [*] %d Addr %016lX\n", 
+			sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "        [*] %d Addr %016lX\n",
 				i, (u64)context->lo);
-			sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "        [*] %d Addr %016lX\n", 
+			sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "        [*] %d Addr %016lX\n",
 				i, (u64)context->hi);
-			
+
 			sb_parse_iommu_pdpepd(context->lo);
 		}
 	}
@@ -211,7 +211,7 @@ static void sb_parse_iommu_root_entry(u64 root_table_addr)
 	remap_addr = (u8*)phys_to_virt(root_table_addr);
 	if (remap_addr == NULL)
 	{
-		sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "IO Remap Error %016lX\n", 
+		sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "IO Remap Error %016lX\n",
 			root_table_addr);
 		return ;
 	}
@@ -222,7 +222,7 @@ static void sb_parse_iommu_root_entry(u64 root_table_addr)
 		root = (struct root_entry*)(remap_addr + i * sizeof(struct root_entry));
 		if (root == NULL)
 		{
-			sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] %d Entry is null\n", 
+			sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] %d Entry is null\n",
 				i);
 		}
 		else
@@ -232,9 +232,9 @@ static void sb_parse_iommu_root_entry(u64 root_table_addr)
 				continue;
 			}
 
-			sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] %d Addr %016lX\n", i, 
+			sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] %d Addr %016lX\n", i,
 				(u64)root->val);
-			sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] %d Addr %016lX\n", i, 
+			sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] %d Addr %016lX\n", i,
 				(u64)root->rsvd1);
 			sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "        [*] Show Context Entry\n");
 
@@ -277,10 +277,10 @@ static void sb_enable_iommu(u8* reg_remap_addr)
 {
 	u32 flags;
 	unsigned long irqs;
- 
+
 	local_irq_save(irqs);
 	local_irq_disable();
-	preempt_disable();	
+	preempt_disable();
 
 	flags = readl(reg_remap_addr + DMAR_GSTS_REG);
 	writel(flags | DMA_GCMD_TE, reg_remap_addr + DMAR_GCMD_REG);
@@ -291,15 +291,36 @@ static void sb_enable_iommu(u8* reg_remap_addr)
 }
 
 /*
+ * Deactivate IOMMU.
+ */
+void sb_disable_iommu(u8* reg_remap_addr)
+{
+	u32 flags;
+	unsigned long irqs;
+
+	local_irq_save(irqs);
+	local_irq_disable();
+	preempt_disable();
+
+	flags = readl(reg_remap_addr + DMAR_GSTS_REG);
+	writel(flags & ~DMA_GCMD_TE, reg_remap_addr + DMAR_GCMD_REG);
+	sb_wait_dmar_operation(reg_remap_addr + DMAR_GSTS_REG, DMA_GSTS_TES);
+
+	local_irq_restore(irqs);
+	preempt_enable();
+}
+
+
+/*
  * Register new root entry to IOMMU.
  */
 static void sb_set_iommu_root_entry_register(u8* reg_remap_addr, u64 addr)
 {
 	u32 flags;
 	unsigned long irqs;
- 
+
 	local_irq_save(irqs);
-	preempt_disable();	
+	preempt_disable();
 
 	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "Root Entry Addr %016lX\n", addr);
 	flags = readl(reg_remap_addr + DMAR_GSTS_REG);
@@ -308,7 +329,7 @@ static void sb_set_iommu_root_entry_register(u8* reg_remap_addr, u64 addr)
    	writel(flags | DMA_GCMD_SRTP, reg_remap_addr + DMAR_GCMD_REG);
 	sb_wait_dmar_operation(reg_remap_addr + DMAR_GSTS_REG, DMA_GSTS_RTPS);
 
-	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "Root Entry Addr %016lX\n", 
+	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "Root Entry Addr %016lX\n",
 		dmar_readq(reg_remap_addr + DMAR_RTADDR_REG));
 
 	local_irq_restore(irqs);
@@ -383,9 +404,9 @@ void sb_set_iommu_page_flags(u64 phy_addr, u32 flags)
 
 	page_offset = phy_addr / IOMMU_PAGE_SIZE;
 	page_index = page_offset % IOMMU_PAGE_ENT_COUNT;
-	page_table_addr = sb_get_iommu_pagetable_log_addr(IOMMU_TYPE_PTE, 
+	page_table_addr = sb_get_iommu_pagetable_log_addr(IOMMU_TYPE_PTE,
 		page_offset / IOMMU_PAGE_ENT_COUNT);
-	page_table_addr[page_index] = (page_table_addr[page_index] & MASK_PAGEADDR) | 
+	page_table_addr[page_index] = (page_table_addr[page_index] & MASK_PAGEADDR) |
 		flags;
 }
 
@@ -404,26 +425,26 @@ void sb_setup_iommu_pagetable_4KB(void)
 	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "Setup PLML4\n");
 	pstIOMMU = (struct sb_iommu_pagetable*)sb_get_iommu_pagetable_log_addr(
 		IOMMU_TYPE_PML4, 0);
-	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] Setup PML4 %016lX, %016lX\n", 
+	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] Setup PML4 %016lX, %016lX\n",
 			(u64)pstIOMMU, virt_to_phys((void*)pstIOMMU));
 	memset(pstIOMMU, 0, sizeof(struct sb_iommu_pagetable));
-	for (i = 0 ; i < g_iommu_info.pml4_ent_count ; i++) 
+	for (i = 0 ; i < g_iommu_info.pml4_ent_count ; i++)
 	{
-		next_page_table = (u64)sb_get_iommu_pagetable_phy_addr(IOMMU_TYPE_PDPTEPD, 
+		next_page_table = (u64)sb_get_iommu_pagetable_phy_addr(IOMMU_TYPE_PDPTEPD,
 			i);
 		pstIOMMU->entry[i] = next_page_table | IOMMU_PAGE_ALL_ACCESS;
 		if (i == 0)
 		{
-			sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] %016lX\n", 
+			sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] %016lX\n",
 				(u64)next_page_table);
 		}
 	}
 	clflush_cache_range(pstIOMMU, IOMMU_PAGE_SIZE);
-	
+
 	// Setup PDPTEPD
 	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "Setup PDPTEPD\n");
-	for (j = 0 ; j < g_iommu_info.pdpte_pd_page_count ; j++) 
-	{	
+	for (j = 0 ; j < g_iommu_info.pdpte_pd_page_count ; j++)
+	{
 		pstIOMMU = (struct sb_iommu_pagetable*)sb_get_iommu_pagetable_log_addr(
 			IOMMU_TYPE_PDPTEPD, j);
 		sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] Setup PDPTEPD [%d] %016lX "
@@ -436,14 +457,14 @@ void sb_setup_iommu_pagetable_4KB(void)
 			iLoopCnt = IOMMU_PAGE_ENT_COUNT;
 		}
 
-		for (i = 0 ; i < iLoopCnt ; i++) 
+		for (i = 0 ; i < iLoopCnt ; i++)
 		{
 			next_page_table = (u64)sb_get_iommu_pagetable_phy_addr(
 				IOMMU_TYPE_PDEPT, (j * IOMMU_PAGE_ENT_COUNT) + i);
 			pstIOMMU->entry[i] = next_page_table | IOMMU_PAGE_ALL_ACCESS;
 			if (i == 0)
 			{
-				sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] %016lX\n", 
+				sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] %016lX\n",
 					(u64)next_page_table);
 			}
 		}
@@ -453,7 +474,7 @@ void sb_setup_iommu_pagetable_4KB(void)
 
 	/* Setup PDEPT. */
 	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "Setup PDEPT\n");
-	for (j = 0 ; j < g_iommu_info.pdept_page_count ; j++) 
+	for (j = 0 ; j < g_iommu_info.pdept_page_count ; j++)
 	{
 		pstIOMMU = (struct sb_iommu_pagetable*)sb_get_iommu_pagetable_log_addr(
 			IOMMU_TYPE_PDEPT, j);
@@ -467,14 +488,14 @@ void sb_setup_iommu_pagetable_4KB(void)
 			iLoopCnt = IOMMU_PAGE_ENT_COUNT;
 		}
 
-		for (i = 0 ; i < iLoopCnt ; i++) 
+		for (i = 0 ; i < iLoopCnt ; i++)
 		{
-			next_page_table = (u64)sb_get_iommu_pagetable_phy_addr(IOMMU_TYPE_PTE, 
+			next_page_table = (u64)sb_get_iommu_pagetable_phy_addr(IOMMU_TYPE_PTE,
 				(j * IOMMU_PAGE_ENT_COUNT) + i);
 			pstIOMMU->entry[i] = next_page_table | IOMMU_PAGE_ALL_ACCESS;
 			if (i == 0)
 			{
-				sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] %016lX\n", 
+				sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] %016lX\n",
 					(u64)next_page_table);
 			}
 		}
@@ -483,7 +504,7 @@ void sb_setup_iommu_pagetable_4KB(void)
 
 	/* Setup PTE. */
 	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "Setup PTE\n");
-	for (j = 0 ; j < g_iommu_info.pte_page_count ; j++) 
+	for (j = 0 ; j < g_iommu_info.pte_page_count ; j++)
 	{
 		pstIOMMU = (struct sb_iommu_pagetable*)sb_get_iommu_pagetable_log_addr(
 			IOMMU_TYPE_PTE, j);
@@ -495,7 +516,7 @@ void sb_setup_iommu_pagetable_4KB(void)
 			iLoopCnt = IOMMU_PAGE_ENT_COUNT;
 		}
 
-		for (i = 0 ; i < iLoopCnt ; i++) 
+		for (i = 0 ; i < iLoopCnt ; i++)
 		{
 			next_page_table = ((u64)j * IOMMU_PAGE_ENT_COUNT + i) * IOMMU_PAGE_SIZE;
 			pstIOMMU->entry[i] = next_page_table | IOMMU_PAGE_ALL_ACCESS;
@@ -518,45 +539,45 @@ int sb_alloc_iommu_pages(void)
 	g_iommu_info.pdept_ent_count = CEIL(g_max_ram_size, VAL_2MB);
 	g_iommu_info.pte_ent_count = CEIL(g_max_ram_size, VAL_4KB);
 
-	g_iommu_info.pml4_page_count = CEIL(g_iommu_info.pml4_ent_count, 
+	g_iommu_info.pml4_page_count = CEIL(g_iommu_info.pml4_ent_count,
 		IOMMU_PAGE_ENT_COUNT);
-	g_iommu_info.pdpte_pd_page_count = CEIL(g_iommu_info.pdpte_pd_ent_count, 
+	g_iommu_info.pdpte_pd_page_count = CEIL(g_iommu_info.pdpte_pd_ent_count,
 		IOMMU_PAGE_ENT_COUNT);
-	g_iommu_info.pdept_page_count = CEIL(g_iommu_info.pdept_ent_count, 
+	g_iommu_info.pdept_page_count = CEIL(g_iommu_info.pdept_ent_count,
 		IOMMU_PAGE_ENT_COUNT);
-	g_iommu_info.pte_page_count = CEIL(g_iommu_info.pte_ent_count, 
+	g_iommu_info.pte_page_count = CEIL(g_iommu_info.pte_ent_count,
 		IOMMU_PAGE_ENT_COUNT);
 
 	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "Setup IOMMU Page Table & Root/Context "
 		"Entry Table, Max RAM Size %ld\n", g_max_ram_size);
-	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] IOMMU Size: %d\n", 
+	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] IOMMU Size: %d\n",
 		(int)sizeof(struct sb_iommu_pagetable));
-	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] PML4 Entry Count: %d\n", 
+	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] PML4 Entry Count: %d\n",
 		(int)g_iommu_info.pml4_ent_count);
-	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] PDPTE PD Entry Count: %d\n", 
+	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] PDPTE PD Entry Count: %d\n",
 		(int)g_iommu_info.pdpte_pd_ent_count);
-	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] PDE PT Entry Count: %d\n", 
+	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] PDE PT Entry Count: %d\n",
 		(int)g_iommu_info.pdept_ent_count);
-	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] PTE Entry Count: %d\n", 
+	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] PTE Entry Count: %d\n",
 		(int)g_iommu_info.pte_ent_count);
 
-	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] PML4 Page Count: %d\n", 
+	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] PML4 Page Count: %d\n",
 		(int)g_iommu_info.pml4_page_count);
-	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] PDPTE PD Page Count: %d\n", 
+	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] PDPTE PD Page Count: %d\n",
 		(int)g_iommu_info.pdpte_pd_page_count);
-	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] PDE PT Page Count: %d\n", 
+	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] PDE PT Page Count: %d\n",
 		(int)g_iommu_info.pdept_page_count);
-	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] PTE Page Count: %d\n", 
+	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] PTE Page Count: %d\n",
 		(int)g_iommu_info.pte_page_count);
 
 	/* Allocate memory for page table. */
-	g_iommu_info.pml4_page_addr_array = 
+	g_iommu_info.pml4_page_addr_array =
 		(u64*)vmalloc(g_iommu_info.pml4_page_count * sizeof(u64*));
-	g_iommu_info.pdpte_pd_page_addr_array = 
+	g_iommu_info.pdpte_pd_page_addr_array =
 		(u64*)vmalloc(g_iommu_info.pdpte_pd_page_count * sizeof(u64*));
-	g_iommu_info.pdept_page_addr_array = 
+	g_iommu_info.pdept_page_addr_array =
 		(u64*)vmalloc(g_iommu_info.pdept_page_count * sizeof(u64*));
-	g_iommu_info.pte_page_addr_array = 
+	g_iommu_info.pte_page_addr_array =
 		(u64*)vmalloc(g_iommu_info.pte_page_count * sizeof(u64*));
 
 	if ((g_iommu_info.pml4_page_addr_array == 0) ||
@@ -616,7 +637,7 @@ int sb_alloc_iommu_pages(void)
 	if ((root_entry_table == NULL) || (context_entry_table == NULL))
 	{
 		sb_printf(LOG_LEVEL_NONE, LOG_INFO " sb_alloc_iommu_pages alloc fail\n");
-		return -1;	
+		return -1;
 	}
 
 	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] root_entry_table Logical: %016lX "
@@ -686,10 +707,10 @@ static void sb_setup_root_table_entry(void)
 	for (i = 0 ; i < 256 ; i++)
 	{
 		root_entry_table[i].rsvd1 = 0;
-		root_entry_table[i].val = (u64)virt_to_phys(context_entry_table) | 
+		root_entry_table[i].val = (u64)virt_to_phys(context_entry_table) |
 			ENTRY_PRESENT;
 
-		sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "Root Table [%d] %016lX %016lX\n", 
+		sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "Root Table [%d] %016lX %016lX\n",
 			i, root_entry_table[i].rsvd1, root_entry_table[i].val);
 	}
 	clflush_cache_range(root_entry_table, IOMMU_PAGE_SIZE);
@@ -719,9 +740,9 @@ static void sb_setup_context_table_entry(void)
 	for (i = 0 ; i < 256 ; i++)
 	{
 		context_entry_table[i].hi = g_entry_level;
-		context_entry_table[i].lo = (u64)virt_to_phys((void*)table_array) | 
+		context_entry_table[i].lo = (u64)virt_to_phys((void*)table_array) |
 			ENTRY_PRESENT;
-		sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "Context Table [%d] %016lX %016lX\n", 
+		sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "Context Table [%d] %016lX %016lX\n",
 			i, context_entry_table[i].hi, context_entry_table[i].lo);
 	}
 	clflush_cache_range(context_entry_table, IOMMU_PAGE_SIZE);
@@ -736,21 +757,21 @@ void sb_protect_iommu_pages(void)
 	u64 end;
 
 	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "Protect IOMMU\n");
-	
+
 	// Hide page table.
-	end = (u64)g_iommu_info.pml4_page_addr_array + 
+	end = (u64)g_iommu_info.pml4_page_addr_array +
 		g_iommu_info.pml4_page_count * sizeof(u64*);
 	sb_hide_range((u64)g_iommu_info.pml4_page_addr_array, end, 1);
 
-	end = (u64)g_iommu_info.pdpte_pd_page_addr_array + 
+	end = (u64)g_iommu_info.pdpte_pd_page_addr_array +
 		g_iommu_info.pdpte_pd_page_count * sizeof(u64*);
 	sb_hide_range((u64)g_iommu_info.pdpte_pd_page_addr_array, end, 1);
 
-	end = (u64)g_iommu_info.pdept_page_addr_array + 
+	end = (u64)g_iommu_info.pdept_page_addr_array +
 		g_iommu_info.pdept_page_count * sizeof(u64*);
 	sb_hide_range((u64)g_iommu_info.pdept_page_addr_array, end, 1);
 
-	end = (u64)g_iommu_info.pte_page_addr_array + 
+	end = (u64)g_iommu_info.pte_page_addr_array +
 		g_iommu_info.pte_page_count * sizeof(u64*);
 	sb_hide_range((u64)g_iommu_info.pte_page_addr_array, end, 1);
 
@@ -784,7 +805,7 @@ void sb_protect_iommu_pages(void)
 
 	end = (u64)g_iommu_info.context_entry_table_addr + 0x1000;
 	sb_hide_range((u64)g_iommu_info.context_entry_table_addr, end, 0);
-	
+
 	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] Complete\n");
 }
 
@@ -798,11 +819,11 @@ static void start_iommu(u8* reg_remap_addr)
 	sb_setup_root_table_entry();
 	sb_setup_context_table_entry();
 
-	sb_set_iommu_root_entry_register(reg_remap_addr, 
+	sb_set_iommu_root_entry_register(reg_remap_addr,
 		(u64)virt_to_phys(g_iommu_info.root_entry_table_addr));
 	sb_enable_iommu(reg_remap_addr);
-	
-	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] IOMMU STATUS = %08X\n", 
+
+	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] IOMMU STATUS = %08X\n",
 		readl(reg_remap_addr + DMAR_GSTS_REG));
 }
 
@@ -822,9 +843,9 @@ void sb_lock_iommu(void)
 	int j;
 
 	sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "Lock IOMMU\n");
-	
+
 	/* Read ACPI. */
-	result = acpi_get_table_with_size(ACPI_SIG_DMAR, 0, 
+	result = acpi_get_table_with_size(ACPI_SIG_DMAR, 0,
 		(struct acpi_table_header **)&dmar_ptr, &dmar_table_size);
 	if (!ACPI_SUCCESS(result) || (dmar_ptr == NULL))
 	{
@@ -835,15 +856,15 @@ void sb_lock_iommu(void)
 
 	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] DMAR find success %016lX\n",
 		(u64)dmar_ptr);
-	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] Signature: %s\n", 
+	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] Signature: %s\n",
 		dmar_ptr->header.signature);
-	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] Length: %d\n", 
+	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] Length: %d\n",
 		dmar_ptr->header.length);
-	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] Revision: %X\n", 
+	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] Revision: %X\n",
 		dmar_ptr->header.revision);
-	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] Checksum: %X\n", 
+	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] Checksum: %X\n",
 		dmar_ptr->header.checksum);
-	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] OEM ID: %s\n", 
+	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] OEM ID: %s\n",
 		dmar_ptr->header.oem_id);
 	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] Width: %X\n", dmar_ptr->width);
 	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] Flag: %X\n", dmar_ptr->flags);
@@ -852,26 +873,26 @@ void sb_lock_iommu(void)
 	for (start = sizeof(struct acpi_table_dmar) ; start < dmar_ptr->header.length ; )
 	{
 		dmar_header = (struct acpi_dmar_header*) (start + (u64)dmar_ptr);
-		sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] Type: %d\n", 
+		sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] Type: %d\n",
 			dmar_header->type);
-		sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] Length: %d\n", 
+		sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] Length: %d\n",
 			dmar_header->length);
 
 		if (dmar_header->type == ACPI_DMAR_TYPE_HARDWARE_UNIT)
 		{
 			hardware_unit = (struct acpi_dmar_hardware_unit*)dmar_header;
-			sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] Flag: %X\n", 
+			sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] Flag: %X\n",
 				hardware_unit->flags);
-			sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] Segment: %X\n", 
+			sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] Segment: %X\n",
 				hardware_unit->segment);
-			sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] Address: %016lX\n", 
+			sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] Address: %016lX\n",
 				(u64)hardware_unit->address);
 
-			remap_addr = (u8*)ioremap_nocache((resource_size_t)(hardware_unit->address), 
+			remap_addr = (u8*)ioremap_nocache((resource_size_t)(hardware_unit->address),
 				VTD_PAGE_SIZE);
 			root_table_addr = dmar_readq(remap_addr + DMAR_CAP_REG);
-			sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] CAP Register: %016lX\n", 
-				root_table_addr); 
+			sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] CAP Register: %016lX\n",
+				root_table_addr);
 
 			if (root_table_addr & (0x01 << 10))
 			{
@@ -881,17 +902,17 @@ void sb_lock_iommu(void)
 			{
 				g_entry_level = ENTRY_3LEVEL_PTE;
 			}
-			
+
 			for (j = 0 ; j < 1024 ; j++)
 			{
-				sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] Data %d %08X\n", j, 
+				sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] Data %d %08X\n", j,
 					readl(remap_addr + 4 * j));
 			}
-			
+
 			root_table_addr = dmar_readq(remap_addr + DMAR_RTADDR_REG);
 
 			sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] Root Table Address: "
-				"%016lX\n", root_table_addr); 
+				"%016lX\n", root_table_addr);
 
 			if (root_table_addr != 0)
 			{
@@ -908,7 +929,7 @@ void sb_lock_iommu(void)
 				sb_set_iommu_hide_page(hardware_unit->address);
 				sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] MM Register Lock OK"
 					" %016X\n", hardware_unit->address);
-			}	
+			}
 
 			iounmap(remap_addr);
 		}
@@ -916,6 +937,50 @@ void sb_lock_iommu(void)
 
 		start += dmar_header->length;
 	}
-	
+
 	sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "    [*] Lock IOMMU complete\n");
+}
+
+/*
+ * Unlock IOMMU area.
+ */
+void sb_unlock_iommu(void)
+{
+	struct acpi_table_dmar* dmar_ptr;
+	struct acpi_dmar_header* dmar_header;
+	struct acpi_dmar_hardware_unit* hardware_unit;
+	u8* remap_addr;
+	u64 start;
+	acpi_size dmar_table_size = 0;
+	acpi_status result = AE_OK;
+
+	/* Read ACPI. */
+	result = acpi_get_table_with_size(ACPI_SIG_DMAR, 0,
+		(struct acpi_table_header **)&dmar_ptr, &dmar_table_size);
+	if (!ACPI_SUCCESS(result) || (dmar_ptr == NULL))
+	{
+		return ;
+	}
+
+	/* Parse ACPI. */
+	for (start = sizeof(struct acpi_table_dmar) ; start < dmar_ptr->header.length ; )
+	{
+		dmar_header = (struct acpi_dmar_header*) (start + (u64)dmar_ptr);
+
+		if (dmar_header->type == ACPI_DMAR_TYPE_HARDWARE_UNIT)
+		{
+			hardware_unit = (struct acpi_dmar_hardware_unit*)dmar_header;
+			remap_addr = (u8*)ioremap_nocache((resource_size_t)(hardware_unit->address),
+				VTD_PAGE_SIZE);
+
+			sb_disable_iommu(remap_addr);
+#if SHADOWBOX_USE_EPT
+			sb_set_ept_all_access_page(hardware_unit->address);
+#endif /* SHADOWBOX_USE_EPT */
+			sb_set_iommu_all_access_page(hardware_unit->address);
+
+			iounmap(remap_addr);
+		}
+		start += dmar_header->length;
+	}
 }

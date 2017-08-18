@@ -22,7 +22,7 @@
  * IOMMU is experimental feature. If you want to enable this feature, you should
  * check if your system supports VT-d technology, and VT-d should be enabled.
  * If IOMMU feature is loaded, all IOMMU registers and tables is locked. So
- * IRQ balancing feature in Linux kernel will fail. Therefore turn off the 
+ * IRQ balancing feature in Linux kernel will fail. Therefore turn off the
  * irqbalance service using "sudo service irqbalance stop".
  *
  * If you have still problems when you run Shadow-box, turn off this feature.
@@ -30,10 +30,10 @@
 #define SHADOWBOX_USE_IOMMU				1
 /* If you want to use tboot, turn on this feature. */
 #define SHADOWBOX_USE_TBOOT				0
-/* 
- * Kernel patch workaround is experimental feature. If you want to use code 
- * patch workaround, turn on this feature. 
- */ 
+/*
+ * Kernel patch workaround is experimental feature. If you want to use code
+ * patch workaround, turn on this feature.
+ */
 #define SHADOWBOX_USE_WORKAROUND		0
 
 /* These features should be set. */
@@ -42,12 +42,10 @@
 #define SHADOWBOX_USE_HW_BREAKPOINT		1
 #define SHADOWBOX_USE_DESC_TABLE		1
 #define SHADOWBOX_USE_PRE_TIMER			1
-#define SHADOWBOX_USE_IRQ_LOCK			1
-#define SHADOWBOX_USE_DELAY				1
 #define SHADOWBOX_USE_PRE_SYMBOL		1
 
 /*
- * Debug macros. 
+ * Debug macros.
  *
  * SHADOWBOX_USE_PAGE_DEBUG: For page table debugging.
  * SHADOWBOX_USE_WATCHER_DEBUG: For Shadow-watcher debugging.
@@ -70,19 +68,19 @@
 #define LOG_LEVEL_DETAIL				3
 
 /* Log type. */
-#define LOG_INFO						KERN_INFO "Shadow-box: "
-#define LOG_ERROR						KERN_ERR "Shadow-box: "
-#define LOG_WARNING						KERN_WARNING "Shadow-box: "
+#define LOG_INFO						KERN_INFO "shadow-box: "
+#define LOG_ERROR						KERN_ERR "shadow-box: "
+#define LOG_WARNING						KERN_WARNING "shadow-box: "
 
 /* Utility macros. */
 #define CEIL(X, Y)						(((X) + (Y) - 1) / (Y))
 #define MASK_GDT_ACCESS					((u64)0x03)
 
 #if SHADOWBOX_HARD_TEST
-/* 100 milisecond. */
-#define TIMER_INTERVAL 100000
+/* 1 milisecond. */
+#define TIMER_INTERVAL 1000
 #else
-/* 1 microsecond	: 1 
+/* 1 microsecond	: 1
  * 1 milisecond		: 1000
  * 1 Second			: 1000000
  */
@@ -93,6 +91,8 @@
 
 /* Shutdown timeout limit, 10 minute. */
 #define SHUTDOWN_TIME_LIMIT_MS				(10 * 60 * 1000)
+/* Time buffer for Shadow-box hiding. */
+#define SHADOW_BOX_HIDE_TIME_BUFFER_MS		(1000)
 
 #define MAX_PROCESSOR_COUNT 				256
 #define MAX_RO_ARRAY_COUNT 					2048
@@ -108,8 +108,8 @@
 #define MAX_VM_EXIT_DUMP_COUNT				72
 
 /* 
- * MSR macros. 
- * Some macros are disabled because of name conflict in Linux header. 
+ * MSR macros.
+ * Some macros are disabled because of name conflict in Linux header.
  */
 /* #define MSR_IA32_FEATURE_CONTROL			0x3A */
 /* #define MSR_IA32_SYSENTER_CS				0x174 */
@@ -337,6 +337,7 @@
 #define VM_BIT_VM_SEC_PROC_CTRL_DESC_TABLE		(0x01 << 2)
 #define VM_BIT_VM_SEC_PROC_CTRL_UNREST_GUEST	(0x01 << 7)
 #define VM_BIT_VM_SEC_PROC_CTRL_ENABLE_INVPCID  (0x01 << 12)
+#define VM_BIT_VM_SEC_PROC_CTRL_ENABLE_XSAVE  	(0x01 << 20)
 
 /* MISC flags. */
 #define VM_BIT_VM_MISC_SAVE_LMA_TO_VMCS			(0x01 << 5)
@@ -352,7 +353,7 @@
 #define VM_BIT_VM_ENTRY_INT_INFO_OTHER			(0x7 << 8)
 #define VM_BIT_VM_ENTRY_INT_INFO_ERROR_CODE		(0x01 << 11)
 #define VM_BIT_VM_ENTRY_INT_INFO_VALID			(0x01 << 31)
-#define VM_BIT_VM_ENTRY_INT_INFO_UD				(0 | VM_BIT_VM_ENTRY_INT_INFO_HW |\
+#define VM_BIT_VM_ENTRY_INT_INFO_UD				(6 | VM_BIT_VM_ENTRY_INT_INFO_HW |\
 	VM_BIT_VM_ENTRY_INT_INFO_VALID)
 #define VM_BIT_VM_ENTRY_INT_INFO_GP				(13 | VM_BIT_VM_ENTRY_INT_INFO_HW | \
 	VM_BIT_VM_ENTRY_INT_INFO_ERROR_CODE | VM_BIT_VM_ENTRY_INT_INFO_VALID)
@@ -500,6 +501,8 @@
 /* CPUID flags. */
 #define CPUID_1_ECX_VMX							((u64)0x01 << 5)
 #define CPUID_1_ECX_SMX							((u64)0x01 << 6)
+#define CPUID_1_ECX_XSAVE						((u64)0x01 << 26)
+#define CPUID_D_EAX_XSAVES						((u64)0x01 << 3)
 
 /* RFLAGS register flags. */
 //=========================================================
@@ -511,8 +514,10 @@
 #define EFER_BIT_LME							(0x01 << 8)
 
 /* CR0 Flags. */
+#define CR0_BIT_WP								((u64)0x01 << 16)
 #define CR0_BIT_NW								((u64)0x01 << 29)
 #define CR0_BIT_CD								((u64)0x01 << 30)
+#define CR0_BIT_PG								((u64)0x01 << 31)
 
 /* CR3 Flags. */
 #define CR3_BIT_PCD								((u64)0x01 << 4)
@@ -550,8 +555,9 @@
 #define GDT_TYPE_64BIT_TRAP_GATE				15
 
 /* Define VM call service number. */
-#define VM_SERVICE_SHUTDOWN						0
-#define VM_SERVICE_SHUTDOWN_THIS_CORE			1
+#define VM_SERVICE_GET_LOGINFO					0
+#define VM_SERVICE_SHUTDOWN						10000
+#define VM_SERVICE_SHUTDOWN_THIS_CORE			10001
 
 /*
  * Structures.
@@ -764,6 +770,7 @@ extern struct file* g_udp6_file_ptr;
 extern struct socket* g_tcp_sock;
 extern struct socket* g_udp_sock;
 extern rwlock_t* g_tasklist_lock;
+extern atomic_t g_need_init_in_secure;
 extern volatile int g_allow_shadow_box_hide;
 
 /*
@@ -777,8 +784,8 @@ u64 sb_sync_page_table(u64 addr);
 u64 sb_sync_page_table2(u64 addr);
 void sb_hang(char* string);
 void sb_add_ro_area(u64 start, u64 end, u64 ro_type);
-int sb_check_addr_in_ro_area(void* addr);
-int sb_check_addr_in_kernel_ro_area(void* addr);
+int sb_is_addr_in_ro_area(void* addr);
+int sb_is_addr_in_kernel_ro_area(void* addr);
 void sb_delete_ro_area(u64 start, u64 end);
 void sb_insert_exception_to_vm(void);
 void sb_vm_exit_callback(struct sb_vm_exit_guest_register* guest_context);

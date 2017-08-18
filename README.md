@@ -224,7 +224,7 @@ $> dmesg
 [   67.121298] Shadow-box: ErrorCode: 4
 ```
 
-# = Caution =
+# 5.Caution
 Shadow-box protects kernel code, read-only data, system table, privilege register, etc. from rootkits. So, if you want to use Shadow-box, you should disable some features below.
  * Disable CONFIG_JUMP_LABEL
    * Change kernel config (.config)
@@ -232,8 +232,8 @@ Shadow-box protects kernel code, read-only data, system table, privilege registe
    * Change system power management setting
  * Disable IRQ remapping for using IOMMU protection feature
    * Insert intremap=off at the end of linux /boot/vmlinuz... line in grub.cfg file
- * Disable irqbalance service if you want to enable IOMMU feature of Shadow-box
-   * Use "sudo update-rc.d irqbalance disable" command
 
-
-
+# 6.Known Issue
+Shadow-box has some known issues below.
+ * Too many logs in secure world stops the system intermittently.
+   * If you want to log massive information, make FIFO like a kfifo and connect normal world and secure world

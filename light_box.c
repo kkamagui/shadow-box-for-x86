@@ -41,6 +41,8 @@
 #include <linux/tboot.h>
 #include <linux/log2.h>
 #include <linux/version.h>
+#include <linux/kfifo.h>
+#include <asm/uaccess.h>
 #include "asm.h"
 #include "shadow_box.h"
 #include "shadow_watcher.h"
@@ -58,6 +60,7 @@
  */
 /* Variables for supporting multi-core environment. */
 struct task_struct *g_vm_start_thread_id[MAX_PROCESSOR_COUNT]= {NULL, };
+int g_thread_result = 0;
 struct task_struct *g_vm_shutdown_thread_id[MAX_PROCESSOR_COUNT]= {NULL, };
 struct desc_ptr g_gdtr_array[MAX_PROCESSOR_COUNT];
 void* g_vmx_on_vmcs_log_addr[MAX_PROCESSOR_COUNT] = {NULL, };
@@ -68,15 +71,19 @@ void* g_io_bitmap_addrB[MAX_PROCESSOR_COUNT] = {NULL, };
 void* g_msr_bitmap_addr[MAX_PROCESSOR_COUNT] = {NULL, };
 int g_trap_count[MAX_PROCESSOR_COUNT] = {0, };
 void* g_virt_apic_page_addr[MAX_PROCESSOR_COUNT] = {NULL, };
+int g_vmx_root_mode[MAX_PROCESSOR_COUNT] = {0, };
 u64 g_stack_size = MAX_STACK_SIZE;
 u64 g_vm_host_phy_pml4 = 0;
 u64 g_vm_init_phy_pml4 = 0;
 struct module* g_shadow_box_module = NULL;
-static int g_support_SMX = 0;
+static int g_support_smx = 0;
+static int g_support_xsave = 0;
 
-volatile int g_first_time = 1;
+atomic_t g_need_init_in_secure = {1};
 volatile int g_allow_shadow_box_hide = 0;
+volatile u64 g_init_in_secure_jiffies = 0;
 atomic_t g_thread_run_flags;
+atomic_t g_thread_entry_count;
 atomic_t g_sync_flags;
 atomic_t g_complete_flags;
 atomic_t g_framework_init_start_flags;
@@ -85,8 +92,6 @@ atomic_t g_enter_count;
 atomic_t g_first;
 atomic_t g_framework_init_flags;
 atomic_t g_iommu_complete_flags;
-atomic_t g_shutdown_complete_count;
-atomic_t g_shutdown_flag;
 atomic_t g_mutex_lock_flags;
 u64 g_vm_pri_proc_based_ctrl_default = 0;
 static spinlock_t g_mem_pool_lock;
@@ -110,10 +115,9 @@ int g_ro_array_count = 0;
 struct ro_addr_struct g_ro_array[MAX_RO_ARRAY_COUNT];
 struct sb_workaround g_workaround = {{0, }, {0, }};
 struct sb_share_context* g_share_context = NULL;
-int g_is_shutdown_trigger_set = 0;
+atomic_t g_is_shutdown_trigger_set = {0, };
 volatile u64 g_shutdown_jiffies = 0;
 static volatile u64 g_first_flag[MAX_PROCESSOR_COUNT] = {0, };
-raw_spinlock_t* g_logbuf_lock = 0;
 
 volatile u64 g_dump_jiffies = 0;
 u64 g_dump_count[MAX_VM_EXIT_DUMP_COUNT] = {0, };
@@ -122,7 +126,7 @@ u64 g_dump_count[MAX_VM_EXIT_DUMP_COUNT] = {0, };
  * Static functions.
  */
 static int sb_get_kernel_version_index(void);
-static int sb_check_kaslr(void);
+static int sb_is_kaslr_working(void);
 static int sb_relocate_symbol(void);
 static void sb_alloc_vmcs_memory(void);
 static void sb_setup_workaround(void);
@@ -149,7 +153,7 @@ static u64 sb_get_desc_base(u64 qwOffset);
 static u64 sb_get_desc_access(u64 qwOffset);
 static void sb_remove_int1_exception_from_vm(void);
 static void sb_print_vm_result(const char* pcData, int iResult);
-static int sb_vm_thread_start(void* pvArgument);
+static int sb_vm_thread(void* pvArgument);
 static void sb_dup_page_table_for_host(void);
 static void sb_protect_kernel_ro_area(void);
 static void sb_protect_module_list_ro_area(void);
@@ -174,7 +178,7 @@ static void sb_get_function_pointers(void);
 static int sb_is_system_shutdowning(void);
 static void sb_disable_desc_monitor(void);
 static void sb_trigger_shutdown_timer(void);
-static int sb_check_shutdown_timer_expired(void);
+static int sb_is_shutdown_timer_expired(void);
 static void sb_sync_page_table_flag(struct sb_pagetable* vm, struct sb_pagetable*
 	init, int index, u64 addr);
 static void sb_set_reg_value_from_index(struct sb_vm_exit_guest_register*
@@ -189,10 +193,8 @@ static void sb_vm_exit_callback_init_signal(int cpu_id);
 static void sb_vm_exit_callback_start_up_signal(int cpu_id);
 static void sb_vm_exit_callback_access_cr(int cpu_id, struct
 	sb_vm_exit_guest_register* guest_context, u64 exit_reason, u64 exit_qual);
-#if SHADOWBOX_USE_SHUTDOWN
 static void sb_vm_exit_callback_vmcall(int cpu_id, struct sb_vm_exit_guest_register*
 	guest_context);
-#endif /* SHADOWBOX_USE_SHUTDOWN */
 static void sb_vm_exit_callback_wrmsr(int cpu_id);
 static void sb_vm_exit_callback_gdtr_idtr(int cpu_id, struct
 	sb_vm_exit_guest_register* guest_context);
@@ -216,7 +218,6 @@ static struct notifier_block g_vm_reboot_nb = {
 };
 #endif /* SHADOWBOX_USE_SHUTDOWN*/
 
-
 /*
  * Start function of Shadow-box module
  */
@@ -228,9 +229,6 @@ static int __init shadow_box_init(void)
 	struct new_utsname* name;
 	u32 eax, ebx, ecx, edx;
 
-	/* Get logbuf_lock to synchronize with the guest. */
-	g_logbuf_lock = (raw_spinlock_t*) sb_get_symbol_address("logbuf_lock");
-
 	sb_print_shadow_box_logo();
 
 	/* Check kernel version and kernel ASLR. */
@@ -240,11 +238,11 @@ static int __init shadow_box_init(void)
 		sb_printf(LOG_LEVEL_NONE, LOG_INFO "Kernel version is not supported, [%s]",
 			name->version);
 		sb_error_log(ERROR_KERNEL_VERSION_MISMATCH);
-		return 0;
+		return -1;
 	}
 
 	/* Check kASLR. */
-	if (sb_check_kaslr() == -1)
+	if (sb_is_kaslr_working() == 1)
 	{
 		sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "Kernel ASLR is enabled\n");
 		sb_relocate_symbol();
@@ -263,17 +261,30 @@ static int __init shadow_box_init(void)
 	{
 		sb_printf(LOG_LEVEL_NONE, LOG_ERROR "    [*] VMX not support\n");
 		sb_error_log(ERROR_HW_NOT_SUPPORT);
-		return 0;
+		return -1;
 	}
 
 	if (ecx & CPUID_1_ECX_SMX)
 	{
 		sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] SMX support\n");
-		g_support_SMX = 1;
+		g_support_smx = 1;
 	}
 	else
 	{
 		sb_printf(LOG_LEVEL_DETAIL, LOG_ERROR "    [*] SMX not support\n");
+	}
+
+	/* Check XSAVES, XRSTORS support. */
+	cpuid_count(0x0D, 1, &eax, &ebx, &ecx, &edx);
+
+	if (eax & CPUID_D_EAX_XSAVES)
+	{
+		sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] XSAVES/XRSTORES support\n");
+		g_support_xsave = 1;
+	}
+	else
+	{
+		sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] XSAVES/XRSTORES not support\n");
 	}
 
 #if SHADOWBOX_USE_SHUTDOWN
@@ -350,7 +361,6 @@ static int __init shadow_box_init(void)
 #endif /* SHADOWBOX_USE_IOMMU */
 
 	sb_protect_kernel_ro_area();
-	sb_protect_module_list_ro_area();
 
 #if SHADOWBOX_USE_EPT
 	sb_protect_ept_pages();
@@ -365,46 +375,43 @@ static int __init shadow_box_init(void)
 	if (sb_prepare_shadow_watcher() != 0)
 	{
 		sb_error_log(ERROR_MEMORY_ALLOC_FAIL);
-		return 0;
+		return -1;
 	}
 
 	sb_setup_workaround();
+
 	if (sb_setup_memory_pool() != 0)
 	{
-		return 0;
+		sb_error_log(ERROR_MEMORY_ALLOC_FAIL);
+		return -1;
 	}
-
-	/* Hiding Shadow-box module. */
-	list_del(&THIS_MODULE->list);
-	kobject_del(&THIS_MODULE->mkobj.kobj);
 
 	g_tasklist_lock = (rwlock_t*) sb_get_symbol_address("tasklist_lock");
 
 	atomic_set(&g_thread_run_flags, cpu_count);
+	atomic_set(&g_thread_entry_count, cpu_count);
 	atomic_set(&g_sync_flags, cpu_count);
 	atomic_set(&g_complete_flags, cpu_count);
 	atomic_set(&g_framework_init_start_flags, cpu_count);
 	atomic_set(&g_first, 1);
 	atomic_set(&g_enter_flags, 0);
 	atomic_set(&g_enter_count, 0);
-	atomic_set(&g_framework_init_flags, 0);
+	atomic_set(&g_framework_init_flags, cpu_count);
 	atomic_set(&g_iommu_complete_flags, 0);
-	atomic_set(&(g_shutdown_complete_count), 0);
-	atomic_set(&(g_shutdown_flag), 0);
 	atomic_set(&(g_mutex_lock_flags), 0);
 
 	/* Create thread for each core. */
 	for (i = 0 ; i < cpu_count ; i++)
 	{
 		g_vm_start_thread_id[i] = (struct task_struct *)kthread_create_on_node(
-			sb_vm_thread_start, NULL, cpu_to_node(i), "vm_thread");
+			sb_vm_thread, NULL, cpu_to_node(i), "vm_thread");
 		if (g_vm_start_thread_id[i] != NULL)
 		{
 			kthread_bind(g_vm_start_thread_id[i], i);
 		}
 		else
 		{
-			sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "VMX [%d] Thread Run Fail\n", i);
+			sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "VM [%d] Thread run fail\n", i);
 		}
 
 #if SHADOWBOX_USE_SHUTDOWN
@@ -416,25 +423,22 @@ static int __init shadow_box_init(void)
 		}
 		else
 		{
-			sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "VMX [%d] Thread Run Fail\n", i);
+			sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "VM [%d] Thread run fail\n", i);
 		}
 #endif /* SHADOWBOX_USE_SHUTDOWN */
 	}
 
-	/* Duplicate page table for the host and Shadow-box */
-	sb_dup_page_table_for_host();
-
 	/*
 	 * Execute thread for each core except this core.
-	 * If sb_vm_thread_start() is executed, task scheduling is prohibited. So,
+	 * If sb_vm_thread() is executed, task scheduling is prohibited. So,
 	 * If task switching is occured when this core run loop below, some core could
-	 * not run sb_vm_thread_start().
+	 * not run sb_vm_thread().
 	 */
 	for (i = 0 ; i < cpu_count ; i++)
 	{
 		if (i != cpu_id) {
 			wake_up_process(g_vm_start_thread_id[i]);
-			sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "VMX [%d] Thread Run Success\n", i);
+			sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "VM [%d] Thread Run Success\n", i);
 		}
 
 #if SHADOWBOX_USE_SHUTDOWN
@@ -444,31 +448,43 @@ static int __init shadow_box_init(void)
 
 	/* Execute thread for this core */
 	wake_up_process(g_vm_start_thread_id[cpu_id]);
-	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "VMX [%d] Thread Run Success\n", cpu_id);
+	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "VM [%d] Thread Run Success\n", cpu_id);
 
 	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "Waiting for complete\n", i);
-#if SHADOWBOX_USE_DELAY
-	while(1)
+
+	/* Check complete flags */
+	while(atomic_read(&g_complete_flags) > 0)
 	{
-		/* Check complete flags */
-		if (atomic_read(&g_complete_flags) == 0)
-		{
-			break;
-		}
 		msleep(100);
 	}
-#endif /* SHADOWBOX_USE_DELAY */
+
+	if (g_thread_result != 0)
+	{
+		sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "Execution Fail\n");
+		return -1;
+	}
+
+	/* Hiding Shadow-box module. */
+	mutex_lock(&module_mutex);
+	list_del(&THIS_MODULE->list);
+	kobject_del(&THIS_MODULE->mkobj.kobj);
+	mutex_unlock(&module_mutex);
 
 	sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "Execution Complete\n");
 	sb_error_log(ERROR_SUCCESS);
 
+	/* Set hide flag and time. */
+	g_init_in_secure_jiffies = jiffies;
 	g_allow_shadow_box_hide = 1;
+
 	return 0;
 
 ERROR_HANDLE:
+	sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "Execution Fail\n");
+
 	sb_free_ept_pages();
 	sb_free_iommu_pages();
-	return 0;
+	return -1;
 }
 
 /*
@@ -482,11 +498,11 @@ static void __exit shadow_box_exit(void)
 
 	cpu_id = smp_processor_id();
 	sb_print_shadow_box_logo();
-	sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "VMX [%d] Stop Shadow Box\n", cpu_id);
+	sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "VMX [%d] Stop Shadow-Box\n", cpu_id);
 }
 
 /*
- * Print Shdow-box logo.
+ * Print Shadow-box logo.
  */
 static void sb_print_shadow_box_logo(void)
 {
@@ -541,9 +557,12 @@ static void sb_trigger_shutdown_timer(void)
 		return ;
 	}
 
-	if (g_is_shutdown_trigger_set == 0)
+	if (atomic_cmpxchg(&g_is_shutdown_trigger_set, 0, 1) == 0)
 	{
-		g_is_shutdown_trigger_set = 1;
+#if SHADOWBOX_USE_IOMMU
+		//sb_unlock_iommu();
+#endif /* SHADOWBOX_USE_IOMMU */
+
 		g_shutdown_jiffies = jiffies;
 	}
 
@@ -553,11 +572,11 @@ static void sb_trigger_shutdown_timer(void)
 /*
  * Check time is over after the shutdown timer is triggered.
  */
-static int sb_check_shutdown_timer_expired(void)
+static int sb_is_shutdown_timer_expired(void)
 {
 	u64 value;
 
-	if (g_is_shutdown_trigger_set == 0)
+	if (g_is_shutdown_trigger_set.counter == 0)
 	{
 		return 0;
 	}
@@ -635,7 +654,7 @@ static int sb_get_kernel_version_index(void)
 /*
  * Check kernel ASLR
  */
-static int sb_check_kaslr(void)
+static int sb_is_kaslr_working(void)
 {
 	u64 stored_text_addr;
 	u64 real_text_addr;
@@ -647,7 +666,7 @@ static int sb_check_kaslr(void)
 	{
 		sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "_etext System.map=%lX Kallsyms=%lX\n",
 			stored_text_addr, real_text_addr);
-		return -1;
+		return 1;
 	}
 
 	return 0;
@@ -997,7 +1016,7 @@ static int sb_check_gdtr(int cpu_id)
 			cpu_id, g_gdtr_array[cpu_id].address, g_gdtr_array[cpu_id].size,
 			gdtr.address, gdtr.size);
 
-		return 1;
+		return -1;
 	}
 
 	if (gdtr.size >= 0x1000)
@@ -1022,7 +1041,7 @@ static int sb_check_gdtr(int cpu_id)
 				sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "VM [%d] index %d low %08X"
 					" high %08X\n", cpu_id, i, gdt->a, gdt->b);
 
-				result = 1;
+				result = -1;
 				break;
 			}
 			else if ((gdt->type == GDT_TYPE_64BIT_LDT) ||
@@ -1105,7 +1124,6 @@ void sb_set_all_access_range(u64 start_addr, u64 end_addr, int alloc_type)
 void sb_hide_range(u64 start_addr, u64 end_addr, int alloc_type)
 {
 	u64 i;
-	u64 data;
 	u64 phy_addr;
 	u64 align_end_addr;
 
@@ -1114,7 +1132,6 @@ void sb_hide_range(u64 start_addr, u64 end_addr, int alloc_type)
 
 	for (i = (start_addr & MASK_PAGEADDR) ; i < align_end_addr ; i += 0x1000)
 	{
-		data = *((u64*)i);
 		if (alloc_type == ALLOC_KMALLOC)
 		{
 			phy_addr = virt_to_phys((void*)i);
@@ -1238,9 +1255,6 @@ static void sb_protect_module_list_ro_area(void)
 	unsigned long mod_head_node;
 	u64 mod_core_size;
 
-	while(!mutex_trylock(&module_mutex))
-		cpu_relax();
-
 	sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "Protect Module Code Area\n");
 	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] Setup RO Area\n");
 
@@ -1275,7 +1289,6 @@ static void sb_protect_module_list_ro_area(void)
 		sb_add_and_protect_module_ro(mod);
 	}
 
-	mutex_unlock(&module_mutex);
 	sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "    [*] Complete\n");
 }
 
@@ -1316,7 +1329,7 @@ static void sb_protect_shadow_box_module(void)
 	mod_core_ro_size = (u64)(mod->core_layout.ro_size);
 #endif
 
-	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "Protect Shadow Box Area\n");
+	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "Protect Shadow-Box Area\n");
 	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] mod:%p [%s], size of module"
 		" struct %d", mod, mod->name, sizeof(struct module));
 	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] init:0x%p module_init:0x%08lX "
@@ -1341,8 +1354,10 @@ static void sb_protect_shadow_box_module(void)
 
 	sb_hide_range(mod_core_base, mod_core_base + mod_core_size, ALLOC_VMALLOC);
 
-	/* Module structure is included in module core range, so give only full
-	 * access to module structure */
+	/*
+	 * Module structure is included in module core range, so give full access
+	 * to module structure.
+	 */
 	sb_set_all_access_range((u64)g_shadow_box_module, (u64)g_shadow_box_module +
 		sizeof(struct module), ALLOC_VMALLOC);
 }
@@ -1372,18 +1387,13 @@ static void sb_protect_gdt(int cpu_id)
  */
 void sb_printf(int level, char* format, ...)
 {
-	va_list argList;
-
-	if (raw_spin_is_locked(g_logbuf_lock))
-	{
-		return ;
-	}
+	va_list arg_list;
 
 	if (level <= LOG_LEVEL)
 	{
-		va_start(argList, format);
-		vprintk(format, argList);
-		va_end(argList);
+		va_start(arg_list, format);
+		vprintk(format, arg_list);
+		va_end(arg_list);
 	}
 }
 
@@ -1392,7 +1402,7 @@ void sb_printf(int level, char* format, ...)
  */
 void sb_error_log(int error_code)
 {
-	sb_printf(LOG_LEVEL_NONE, LOG_ERROR "ErrorCode: %d\n", error_code);
+	sb_printf(LOG_LEVEL_NONE, LOG_ERROR "errorcode=%d\n", error_code);
 }
 
 /*
@@ -1632,7 +1642,7 @@ u64 sb_sync_page_table2(u64 addr)
 	}
 
 	/* Skip static kernel object area */
-	if (sb_check_addr_in_kernel_ro_area((void*)addr))
+	if (sb_is_addr_in_kernel_ro_area((void*)addr))
 	{
 		return 0;
 	}
@@ -1758,7 +1768,7 @@ u64 sb_sync_page_table(u64 addr)
 	}
 
 	/* Skip static kernel object area */
-	if (sb_check_addr_in_kernel_ro_area((void*)addr))
+	if (sb_is_addr_in_kernel_ro_area((void*)addr))
 	{
 		return 0;
 	}
@@ -2190,7 +2200,7 @@ void sb_hang(char* string)
  * Enable VT-x and run Shadow-box.
  * This thread function runs on each core.
  */
-static int sb_vm_thread_start(void* argument)
+static int sb_vm_thread(void* argument)
 {
 	struct sb_vm_host_register* host_register;
 	struct sb_vm_guest_register* guest_register;
@@ -2202,6 +2212,13 @@ static int sb_vm_thread_start(void* argument)
 
 	cpu_id = smp_processor_id();
 
+	/* Synchronize processors. */
+	atomic_dec(&g_thread_entry_count);
+	while(atomic_read(&g_thread_entry_count) > 0)
+	{
+		schedule();
+	}
+
 	host_register = kmalloc(sizeof(struct sb_vm_host_register), GFP_KERNEL);
 	guest_register = kmalloc(sizeof(struct sb_vm_guest_register), GFP_KERNEL);
 	control_register = kmalloc(sizeof(struct sb_vm_control_register), GFP_KERNEL);
@@ -2210,20 +2227,19 @@ static int sb_vm_thread_start(void* argument)
 	{
 		sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] Host or Guest or Control "
 			"Register alloc fail\n", cpu_id);
-		return 0;
+		g_thread_result |= -1;
+		return -1;
 	}
 
 	memset(host_register, 0, sizeof(struct sb_vm_host_register));
 	memset(guest_register, 0, sizeof(struct sb_vm_guest_register));
 	memset(control_register, 0, sizeof(struct sb_vm_control_register));
 
-	/* Lock module_mutex and syncronize all core */
+	/* Lock module_mutex, and protect module RO area, and syncronize all core. */
 	if (cpu_id == 0)
 	{
-		while (!mutex_trylock(&module_mutex))
-		{
-			msleep(10);
-		}
+		mutex_lock(&module_mutex);
+		sb_protect_module_list_ro_area();
 
 		atomic_set(&g_mutex_lock_flags, 1);
 		sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "VM [%d] module mutex lock complete\n",
@@ -2233,88 +2249,82 @@ static int sb_vm_thread_start(void* argument)
 	{
 		while (atomic_read(&g_mutex_lock_flags) == 0)
 		{
-			msleep(10);
+			schedule();
 		}
 	}
 
-#if SHADOWBOX_USE_IRQ_LOCK
+	/* Disable preemption and hold processors. */
 	preempt_disable();
-#endif /* SHADOWBOX_USE_IRQ_LOCK */
 
-#if SHADOWBOX_USE_DELAY
 	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "VM [%d] Wait until thread executed\n",
 		cpu_id);
 
+	/* Synchronize processors. */
 	atomic_dec(&g_thread_run_flags);
-
-	while(1)
+	while(atomic_read(&g_thread_run_flags) > 0)
 	{
-		if (atomic_read(&g_thread_run_flags) == 0)
-		{
-			break;
-		}
-
 		mdelay(1);
 	}
-
 	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "VM [%d] Complete to wait until thread "
 		"executed\n", cpu_id);
-#endif /* SHADOWBOX_USE_DELAY */
 
-	/* Lock tasklist_lock and initialize Shadow-watcher */
+	/* Lock tasklist_lock and initialize Shadow-watcher. */
 	if (cpu_id == 0)
 	{
+		sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "VM [%d] Dup talbe Initialize \n",
+			cpu_id);
+
+		/* Duplicate page table for the host and Shadow-box. */
+		sb_dup_page_table_for_host();
+
+		sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "VM [%d] Dup talbe Initialize Complete\n",
+			cpu_id);
+
+		/* Lock tasklist. */
+		read_lock(g_tasklist_lock);
+
 		sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "VM [%d] Framework Initialize \n",
 			cpu_id);
 
-		write_lock(g_tasklist_lock);
-
+		/* Initialize Shadow-watcher. */
 		sb_init_shadow_watcher();
 
-		write_unlock(g_tasklist_lock);
-		mutex_unlock(&module_mutex);
-
-		atomic_set(&g_framework_init_flags, 1);
-	}
-	else
-	{
-		sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "VM [%d] Framework Initialize Waiting\n",
+		sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "VM [%d] Framework Initialize Complete \n",
 			cpu_id);
 
-		while(atomic_read(&g_framework_init_flags) == 0)
-		{
-			mdelay(1);
-		}
+		/* Unlock tasklist. */
+		read_unlock(g_tasklist_lock);
+	}
+
+	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "VM [%d] Framework Initialize Waiting\n",
+		cpu_id);
+
+	/* Synchronize processors. */
+	atomic_dec(&g_framework_init_flags);
+	while(atomic_read(&g_framework_init_flags) > 0)
+	{
+		mdelay(1);
 	}
 	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] VM [%d] Complete\n", cpu_id);
 
-#if SHADOWBOX_USE_IRQ_LOCK
 	/* Disable interrupt before VM launch */
 	local_irq_save(irqs);
-
 	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "VM [%d] IRQ Lock complete\n", cpu_id);
-#endif /* SHADOWBOX_USE_IRQ_LOCK */
 
-#if SHADOWBOX_USE_DELAY
 	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "VM [%d] Wait until stable status\n",
 		cpu_id);
-	mdelay(1000);
+	mdelay(2000);
 
+	/* Synchronize processors. */
 	atomic_dec(&g_sync_flags);
-
-	while(1)
+	while(atomic_read(&g_sync_flags) > 0)
 	{
-		if (atomic_read(&g_sync_flags) == 0)
-		{
-			break;
-		}
-		mdelay(100);
+		mdelay(1);
 	}
-#endif /* SHADOWBOX_USE_DELAY */
-
 	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "VM [%d] Ready to go!!\n", cpu_id);
 
 #if SHADOWBOX_USE_IOMMU
+	/* Lock iommu and synchronize processors. */
 	if (cpu_id == 0)
 	{
 		sb_lock_iommu();
@@ -2324,28 +2334,23 @@ static int sb_vm_thread_start(void* argument)
 	{
 		while(atomic_read(&g_iommu_complete_flags) == 0)
 		{
-			mdelay(10);
+			mdelay(1);
 		}
 	}
 #endif /* SHADOWBOX_USE_IOMMU */
 
-#if SHADOWBOX_USE_DELAY
+	/* Synchronize processors. */
 	while (atomic_read(&g_enter_count) != cpu_id)
 	{
 		mdelay(1);
 	}
-#endif /* SHADOWBOX_USE_DELAY */
 
 	/* Initialize VMX */
-	if (sb_init_vmx(cpu_id) != 1)
+	if (sb_init_vmx(cpu_id) < 0)
 	{
-#if SHADOWBOX_USE_DELAY
 		atomic_set(&g_enter_flags, 0);
 		atomic_inc(&g_enter_count);
-#endif
-
 		sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] sb_init_vmx fail\n", cpu_id);
-
 		goto ERROR;
 	}
 
@@ -2358,12 +2363,10 @@ static int sb_vm_thread_start(void* argument)
 	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "VM [%d] Launch Start\n", cpu_id);
 	result = sb_vm_launch();
 
-#if SHADOWBOX_USE_DELAY
 	atomic_set(&g_enter_flags, 0);
 	atomic_inc(&g_enter_count);
-#endif /* SHADOWBOX_USE_DELAY */
 
-	if (result == 0)
+	if (result == -2)
 	{
 		sb_printf(LOG_LEVEL_NONE, LOG_ERROR "    [*] VM [%d] Launch Valid Fail\n",
 			cpu_id);
@@ -2388,36 +2391,40 @@ static int sb_vm_thread_start(void* argument)
 			cpu_id);
 	}
 
+	/* Synchronize processors. */
 	atomic_dec(&g_framework_init_start_flags);
-
-	/* Synchronize all core */
-	while(1)
+	while(atomic_read(&g_framework_init_start_flags) > 0)
 	{
-		if (atomic_read(&g_framework_init_start_flags) == 0)
-		{
-			break;
-		}
-		mdelay(10);
+		mdelay(1);
 	}
 
-#if SHADOWBOX_USE_IRQ_LOCK
 	/* Enable interrupt */
-	preempt_enable();
 	local_irq_restore(irqs);
-#endif
+	preempt_enable();
 
+	if (cpu_id == 0)
+	{
+		mutex_unlock(&module_mutex);
+	}
 	atomic_dec(&g_complete_flags);
 
 	return 0;
 
+/* Handle errors. */
 ERROR:
-#if SHADOWBOX_USE_IRQ_LOCK
-	/* Enable interrupt */
-	preempt_enable();
-	local_irq_restore(irqs);
-#endif /* SHADOWBOX_USE_IRQ_LOCK */
+	g_thread_result |= -1;
 
-	return 0;
+	/* Enable interrupt */
+	local_irq_restore(irqs);
+	preempt_enable();
+
+	if (cpu_id == 0)
+	{
+		mutex_unlock(&module_mutex);
+	}
+	atomic_dec(&g_complete_flags);
+
+	return -1;
 }
 
 /*
@@ -2436,9 +2443,9 @@ static int sb_init_vmx(int cpu_id)
 	u64 value;
 	int result;
 
-	if (g_support_SMX)
+	if (g_support_smx)
 	{
-		// SMXE 관련 Exception을Handling 하기위해 설정
+		// To handle the SMXE exception.
 		cr4 = sb_get_cr4();
 		cr4 |= CR4_BIT_SMXE;
 		sb_set_cr4(cr4);
@@ -2500,7 +2507,7 @@ static int sb_init_vmx(int cpu_id)
 	/* First data of VMCS should be VMX revision number */
 	vmx_VMCS_log_addr[0] = (u32)vmx_msr;
 	result = sb_start_vmx(&vmx_VMCS_phy_addr);
-	if (result == 1)
+	if (result == 0)
 	{
 		sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] VMXON Success\n");
 	}
@@ -2508,7 +2515,7 @@ static int sb_init_vmx(int cpu_id)
 	{
 		sb_printf(LOG_LEVEL_NONE, LOG_ERROR "    [*] VMXON Fail\n");
 		sb_error_log(ERROR_LAUNCH_FAIL);
-		return 0;
+		return -1;
 	}
 
 	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "Preparing Geust\n");
@@ -2522,7 +2529,7 @@ static int sb_init_vmx(int cpu_id)
 	/* First data of VMCS should be VMX revision number */
 	guest_VMCS_log_addr[0] = (u32) vmx_msr;
 	result = sb_clear_vmcs(&guest_VMCS_phy_addr);
-	if (result == 1)
+	if (result == 0)
 	{
 		sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] Guest VCMS Clear Success\n");
 	}
@@ -2530,11 +2537,11 @@ static int sb_init_vmx(int cpu_id)
 	{
 		sb_printf(LOG_LEVEL_NONE, LOG_ERROR "    [*] Guest VCMS Clear Fail\n");
 		sb_error_log(ERROR_LAUNCH_FAIL);
-		return 0;
+		return -1;
 	}
 
 	result = sb_load_vmcs((void**)&guest_VMCS_phy_addr);
-	if (result == 1)
+	if (result == 0)
 	{
 		sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] Guest VCMS Load Success\n");
 	}
@@ -2542,10 +2549,10 @@ static int sb_init_vmx(int cpu_id)
 	{
 		sb_printf(LOG_LEVEL_NONE, LOG_ERROR "    [*] Guest VCMS Load Fail\n");
 		sb_error_log(ERROR_LAUNCH_FAIL);
-		return 0;
+		return -1;
 	}
 
-	return 1;
+	return 0;
 }
 
 /*
@@ -2627,35 +2634,47 @@ void sb_vm_exit_callback(struct sb_vm_exit_guest_register* guest_context)
 	u64 info_field;
 
 	cpu_id = smp_processor_id();
+
+	/* Update currnt cpu mode. */
+	g_vmx_root_mode[cpu_id] = 1;
+
 	sb_read_vmcs(VM_DATA_EXIT_REASON, &exit_reason);
 	sb_read_vmcs(VM_DATA_EXIT_QUALIFICATION, &exit_qual);
 	sb_read_vmcs(VM_DATA_GUEST_LINEAR_ADDR, &guest_linear);
 	sb_read_vmcs(VM_DATA_GUEST_PHY_ADDR, &guest_physical);
 
 	sb_read_vmcs(VM_DATA_VM_EXIT_INT_INFO, &info_field);
+
+	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "VM [%d] EXIT Reason field: %016lX\n",
+		cpu_id, exit_reason);
 	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "VM [%d] EXIT Interrupt Info field: %016lX\n",
 		cpu_id, info_field);
 
 	/* Check system is shutdowning and shutdown timer is expired */
 	sb_trigger_shutdown_timer();
-	sb_check_shutdown_timer_expired();
+	sb_is_shutdown_timer_expired();
 
 	sb_write_vmcs(VM_CTRL_VM_ENTRY_INST_LENGTH, 0);
 
-	if ((g_first_time == 1) && (g_allow_shadow_box_hide == 1))
+	if ((g_allow_shadow_box_hide == 1) &&
+		((jiffies_to_msecs(jiffies - g_init_in_secure_jiffies) >= SHADOW_BOX_HIDE_TIME_BUFFER_MS)))
 	{
-		g_first_time = 0;
+		if (atomic_cmpxchg(&g_need_init_in_secure, 1, 0))
+		{
 #if SHADOWBOX_USE_EPT
-		/* Hide Shadow-box module here after all vm thread are terminated */
-		sb_protect_shadow_box_module();
-		sb_protect_shadow_watcher_data();
-#endif
+			/* Hide Shadow-box module here after all vm thread are terminated */
+			sb_protect_shadow_box_module();
+			sb_protect_shadow_watcher_data();
+#endif /* SHADOWBOX_USE_EPT */
+
+			g_allow_shadow_box_hide = 0;
+		}
 	}
 
-#if SHADOWBOX_USE_VMEXIT_DEBUG
+ #if SHADOWBOX_USE_VMEXIT_DEBUG
 	g_dump_count[exit_reason & 0xFFFF] += 1;
 	sb_dump_vm_exit_data();
-#endif
+#endif /* SHADOWBOX_USE_VMEXIT_DEBUG */
 
 	switch((exit_reason & 0xFFFF))
 	{
@@ -2739,9 +2758,7 @@ void sb_vm_exit_callback(struct sb_vm_exit_guest_register* guest_context)
 			break;
 
 		case VM_EXIT_REASON_VMCALL:
-#if SHADOWBOX_USE_SHUTDOWN
 			sb_vm_exit_callback_vmcall(cpu_id, guest_context);
-#endif /* SHADOWBOX_USE_SHUTDOWN */
 			break;
 
 		/* Unconditional VM exit event (move fron reg_value) */
@@ -2848,6 +2865,9 @@ void sb_vm_exit_callback(struct sb_vm_exit_guest_register* guest_context)
 			sb_advance_vm_guest_rip();
 			break;
 	}
+
+	/* Update currnt cpu mode. */
+	g_vmx_root_mode[cpu_id] = 0;
 }
 
 /*
@@ -3245,7 +3265,6 @@ static u64 sb_get_value_from_memory(u64 inst_info, u64 addr)
 	return value;
 }
 
-#if SHADOWBOX_USE_SHUTDOWN
 /*
  * Process VM call.
  */
@@ -3258,13 +3277,23 @@ static void sb_vm_exit_callback_vmcall(int cpu_id, struct sb_vm_exit_guest_regis
 	svr_num = guest_context->rax;
 	arg = (void*)guest_context->rbx;
 
-	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "VM [%d] VMCALL index[%ld] arg[%016lX]\n",
+	/* Set return value. */
+	guest_context->rax = 0;
+
+	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "VM [%d] VMCALL index[%ld], arg_in[%016lX]\n",
 		cpu_id, svr_num, arg);
+
 	/* Move RIP to next instruction. */
 	sb_advance_vm_guest_rip();
 
 	switch(svr_num)
 	{
+		/* Return log info structure. */
+		case VM_SERVICE_GET_LOGINFO:
+			guest_context->rax = 0;
+			break;
+
+#if SHADOWBOX_USE_SHUTDOWN
 		case VM_SERVICE_SHUTDOWN:
 			atomic_set(&(g_share_context->shutdown_flag), 1);
 			break;
@@ -3272,6 +3301,7 @@ static void sb_vm_exit_callback_vmcall(int cpu_id, struct sb_vm_exit_guest_regis
 		case VM_SERVICE_SHUTDOWN_THIS_CORE:
 			sb_shutdown_vm_this_core(cpu_id, guest_context);
 			break;
+#endif /* SHADOWBOX_USE_SHUTDOWN */
 
 		default:
 			sb_advance_vm_guest_rip();
@@ -3279,6 +3309,7 @@ static void sb_vm_exit_callback_vmcall(int cpu_id, struct sb_vm_exit_guest_regis
 	}
 }
 
+#if SHADOWBOX_USE_SHUTDOWN
 /**
  *	Shutdown Shadow-box
  */
@@ -3390,7 +3421,7 @@ static void sb_restore_context_from_vm_guest(int cpu_id, struct sb_vm_full_conte
 /*
  * Process system reboot notify event.
  */
-static int sb_system_reboot_notify(struct notifier_block *nb, unsigned long code, 
+static int sb_system_reboot_notify(struct notifier_block *nb, unsigned long code,
 	void *unused)
 {
 	int cpu_count;
@@ -3447,8 +3478,8 @@ void sb_insert_exception_to_vm(void)
 	u64 info_field;
 	sb_read_vmcs(VM_CTRL_VM_ENTRY_INT_INFO_FIELD, &info_field);
 
-	info_field |= VM_BIT_VM_ENTRY_INT_INFO_GP;
-	//info_field |= VM_BIT_VM_ENTRY_INT_INFO_UD;
+	//info_field = VM_BIT_VM_ENTRY_INT_INFO_GP;
+	info_field = VM_BIT_VM_ENTRY_INT_INFO_UD;
 
 	sb_write_vmcs(VM_CTRL_VM_ENTRY_INT_INFO_FIELD, info_field);
 	sb_write_vmcs(VM_CTRL_VM_ENTRY_EXCEPT_ERR_CODE, 0);
@@ -3603,15 +3634,11 @@ static void sb_vm_exit_callback_ept_violation(int cpu_id, struct sb_vm_exit_gues
 	guest_context, u64 exit_reason, u64 exit_qual, u64 guest_linear, u64 guest_physical)
 {
 	u64 log_addr;
+	u64 cr0;
 
-	sb_printf(LOG_LEVEL_NONE, LOG_ERROR "VM [%d] Memory attack is detected\n",
-		cpu_id);
-	sb_printf(LOG_LEVEL_NONE, LOG_ERROR "VM [%d] Guest Linear: %ld, %016lX\n",
-		cpu_id, guest_linear, guest_linear);
-	sb_printf(LOG_LEVEL_NONE, LOG_ERROR "VM [%d] Guest Physical: %ld, %016lX\n",
-		cpu_id, guest_physical, guest_physical);
-	sb_printf(LOG_LEVEL_NONE, LOG_ERROR "VM [%d] virt_to_phys: virt %016lX phys %016lX\n",
-		cpu_id, guest_linear, virt_to_phys((void*)guest_linear));
+	sb_printf(LOG_LEVEL_NONE, LOG_ERROR "VM [%d] Memory attack is detected, "
+		"guest linear=%016lX guest physical=%016X virt_to_phys=%016lX\n",
+		cpu_id, guest_linear, guest_physical, virt_to_phys((void*)guest_linear));
 
 	if (sb_is_system_shutdowning() == 0)
 	{
@@ -3627,13 +3654,21 @@ static void sb_vm_exit_callback_ept_violation(int cpu_id, struct sb_vm_exit_gues
 		{
 			/* Insert exception to the guest */
 			sb_insert_exception_to_vm();
+			sb_read_vmcs(VM_GUEST_CR0, &cr0);
+
+			/* If malware turns WP bit off, recover it again */
+			if ((cr0 & CR0_BIT_PG) && !(cr0 & CR0_BIT_WP))
+			{
+				sb_write_vmcs(VM_GUEST_CR0, cr0 | CR0_BIT_WP);
+			}
+
 			sb_error_log(ERROR_KERNEL_MODIFICATION);
 		}
 	}
 	else
 	{
 		log_addr = (u64)phys_to_virt(guest_physical);
-		if (sb_check_addr_in_kernel_ro_area((void*)log_addr) == 0)
+		if (sb_is_addr_in_kernel_ro_area((void*)log_addr) == 0)
 		{
 			sb_set_ept_all_access_page(guest_physical);
 		}
@@ -3673,7 +3708,7 @@ static void sb_vm_exit_callback_pre_timer_expired(int cpu_id)
 	if (sb_is_system_shutdowning() == 0)
 	{
 		/* Check gdtr. */
-		if (sb_check_gdtr(cpu_id) == 1)
+		if (sb_check_gdtr(cpu_id) == -1)
 		{
 			sb_printf(LOG_LEVEL_NONE, LOG_ERROR "VM [%d] GDTR or IDTR attack is detected\n", cpu_id);
 			sb_error_log(ERROR_KERNEL_MODIFICATION);
@@ -4039,6 +4074,17 @@ static void sb_setup_vm_control_register(struct sb_vm_control_register*
 		sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "VM [%d] Support Enable INVPCID\n",
 			cpu_id);
 		sec_flags |= VM_BIT_VM_SEC_PROC_CTRL_ENABLE_INVPCID;
+	}
+
+	if (g_support_xsave == 1)
+	{
+		if ((sb_rdmsr(MSR_IA32_VMX_PROCBASED_CTLS2) >> 32) &
+			VM_BIT_VM_SEC_PROC_CTRL_ENABLE_XSAVE)
+		{
+			sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "VM [%d] Support Enable XSAVE\n",
+				cpu_id);
+			sec_flags |= VM_BIT_VM_SEC_PROC_CTRL_ENABLE_XSAVE;
+		}
 	}
 
 #if SHADOWBOX_USE_PRE_TIMER
@@ -4688,7 +4734,7 @@ void sb_delete_ro_area(u64 start, u64 end)
 /*
  * Check if the address is in read-only area.
  */
-int sb_check_addr_in_ro_area(void* addr)
+int sb_is_addr_in_ro_area(void* addr)
 {
 	int i;
 
@@ -4716,7 +4762,7 @@ int sb_check_addr_in_ro_area(void* addr)
 /*
  * Check if the address is in kernel read-only area.
  */
-int sb_check_addr_in_kernel_ro_area(void* addr)
+int sb_is_addr_in_kernel_ro_area(void* addr)
 {
 	int i;
 

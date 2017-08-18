@@ -41,8 +41,8 @@
 /* DMAR page type. */
 #define IOMMU_TYPE_PML4				0
 #define IOMMU_TYPE_PDPTEPD			1
-#define IOMMU_TYPE_PDEPT			2	
-#define IOMMU_TYPE_PTE				3	
+#define IOMMU_TYPE_PDEPT			2
+#define IOMMU_TYPE_PTE				3
 
 /*
  * Structures.
@@ -54,7 +54,7 @@ struct sb_iommu_pagetable
 
 /* IOMMU information structure. */
 struct sb_iommu_info
-{	
+{
 	u64 pml4_ent_count;
 	u64 pdpte_pd_ent_count;
 	u64 pdept_ent_count;
@@ -69,18 +69,18 @@ struct sb_iommu_info
 	u64* pte_page_addr_array;
 
 	u64* root_entry_table_addr;
-	u64* context_entry_table_addr;	
+	u64* context_entry_table_addr;
 };
 
 /* Root table entry structure. */
-struct root_entry 
+struct root_entry
 {
 	u64	val;
 	u64	rsvd1;
 };
 
 /* Context table entry structure. */
-struct context_entry 
+struct context_entry
 {
 	u64	lo;
 	u64	hi;
@@ -90,6 +90,7 @@ struct context_entry
  * Functions.
  */
 void sb_lock_iommu(void);
+void sb_unlock_iommu(void);
 int sb_alloc_iommu_pages(void);
 void sb_free_iommu_pages(void);
 void sb_protect_iommu_pages(void);

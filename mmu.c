@@ -15,7 +15,7 @@
 #include <linux/kernel.h>
 #include <linux/rwlock_types.h>
 #include <linux/reboot.h>
-#include <linux/slab.h> 
+#include <linux/slab.h>
 #include <linux/mm.h>
 #include <linux/version.h>
 #include "mmu.h"
@@ -36,9 +36,9 @@ static u64 g_ram_end;
  */
 static void sb_set_ept_page_addr(u64 phy_addr, u64 addr);
 static void sb_set_ept_page_flags(u64 phy_addr, u32 flags);
-static int sb_callback_walk_ram(unsigned long start, unsigned long size, 
+static int sb_callback_walk_ram(unsigned long start, unsigned long size,
 	void* arg);
-static int sb_callback_set_write_back_to_ram(unsigned long start, 
+static int sb_callback_set_write_back_to_ram(unsigned long start,
 	unsigned long size, void* arg);
 static void sb_setup_ept_system_ram_range(void);
 
@@ -53,47 +53,47 @@ void sb_protect_ept_pages(void)
 	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "Protect EPT\n");
 
 	/* Hide the EPT page table */
-	end = (u64)g_ept_info.pml4_page_addr_array + g_ept_info.pml4_page_count * 
+	end = (u64)g_ept_info.pml4_page_addr_array + g_ept_info.pml4_page_count *
 		sizeof(u64*);
 	sb_hide_range((u64)g_ept_info.pml4_page_addr_array, end, ALLOC_VMALLOC);
 
-	end = (u64)g_ept_info.pdpte_pd_page_addr_array + 
+	end = (u64)g_ept_info.pdpte_pd_page_addr_array +
 		g_ept_info.pdpte_pd_page_count * sizeof(u64*);
 	sb_hide_range((u64)g_ept_info.pdpte_pd_page_addr_array, end, ALLOC_VMALLOC);
-	
-	end = (u64)g_ept_info.pdept_page_addr_array + 
+
+	end = (u64)g_ept_info.pdept_page_addr_array +
 		g_ept_info.pdept_page_count * sizeof(u64*);
 	sb_hide_range((u64)g_ept_info.pdept_page_addr_array, end, ALLOC_VMALLOC);
-	
-	end = (u64)g_ept_info.pte_page_addr_array + 
+
+	end = (u64)g_ept_info.pte_page_addr_array +
 		g_ept_info.pte_page_count * sizeof(u64*);
 	sb_hide_range((u64)g_ept_info.pte_page_addr_array, end, ALLOC_VMALLOC);
 
 	for (i = 0 ; i < g_ept_info.pml4_page_count ; i++)
-	{	
+	{
 		end = (u64)g_ept_info.pml4_page_addr_array[i] + EPT_PAGE_SIZE;
-		sb_hide_range((u64)g_ept_info.pml4_page_addr_array[i], end, 
+		sb_hide_range((u64)g_ept_info.pml4_page_addr_array[i], end,
 			ALLOC_KMALLOC);
 	}
 
 	for (i = 0 ; i < g_ept_info.pdpte_pd_page_count ; i++)
 	{
 		end = (u64)g_ept_info.pdpte_pd_page_addr_array[i] + EPT_PAGE_SIZE;
-		sb_hide_range((u64)g_ept_info.pdpte_pd_page_addr_array[i], end, 
+		sb_hide_range((u64)g_ept_info.pdpte_pd_page_addr_array[i], end,
 			ALLOC_KMALLOC);
 	}
 
 	for (i = 0 ; i < g_ept_info.pdept_page_count ; i++)
 	{
 		end = (u64)g_ept_info.pdept_page_addr_array[i] + EPT_PAGE_SIZE;
-		sb_hide_range((u64)g_ept_info.pdept_page_addr_array[i], end, 
+		sb_hide_range((u64)g_ept_info.pdept_page_addr_array[i], end,
 			ALLOC_KMALLOC);
 	}
 
 	for (i = 0 ; i < g_ept_info.pte_page_count ; i++)
 	{
 		end = (u64)g_ept_info.pte_page_addr_array[i] + EPT_PAGE_SIZE;
-		sb_hide_range((u64)g_ept_info.pte_page_addr_array[i], end, 
+		sb_hide_range((u64)g_ept_info.pte_page_addr_array[i], end,
 			ALLOC_KMALLOC);
 	}
 
@@ -103,8 +103,8 @@ void sb_protect_ept_pages(void)
 /*
  * Hide a physical page to protect it from the guest.
  *
- * When Shadow-box sets no permission to the page, error is occured in some 
- * system. So, for hiding a physical page, Shadow-box sets read-only 
+ * When Shadow-box sets no permission to the page, error is occured in some
+ * system. So, for hiding a physical page, Shadow-box sets read-only
  * permission to the page and maps guest physical page to page number 0.
  */
 void sb_set_ept_hide_page(u64 phy_addr)
@@ -135,7 +135,7 @@ void sb_set_ept_lock_page(u64 phy_addr)
  * Set all permissions to a physcial page.
  */
 void sb_set_ept_all_access_page(u64 phy_addr)
-{	
+{
 	sb_set_ept_page_flags(phy_addr, EPT_ALL_ACCESS | EPT_BIT_MEM_TYPE_WB);
 	sb_set_ept_page_addr(phy_addr, phy_addr);
 }
@@ -151,9 +151,9 @@ static void sb_set_ept_page_addr(u64 phy_addr, u64 addr)
 
 	page_offset = phy_addr / EPT_PAGE_SIZE;
 	page_index = page_offset % EPT_PAGE_ENT_COUNT;
-	page_table_addr = sb_get_pagetable_log_addr(EPT_TYPE_PTE, 
+	page_table_addr = sb_get_pagetable_log_addr(EPT_TYPE_PTE,
 		page_offset / EPT_PAGE_ENT_COUNT);
-	page_table_addr[page_index] = (addr & MASK_PAGEADDR) | 
+	page_table_addr[page_index] = (addr & MASK_PAGEADDR) |
 		(page_table_addr[page_index] & ~MASK_PAGEADDR);
 }
 
@@ -168,9 +168,9 @@ static void sb_set_ept_page_flags(u64 phy_addr, u32 flags)
 
 	page_offset = phy_addr / EPT_PAGE_SIZE;
 	page_index = page_offset % EPT_PAGE_ENT_COUNT;
-	page_table_addr = sb_get_pagetable_log_addr(EPT_TYPE_PTE, 
+	page_table_addr = sb_get_pagetable_log_addr(EPT_TYPE_PTE,
 			page_offset / EPT_PAGE_ENT_COUNT);
-	page_table_addr[page_index] = (page_table_addr[page_index] & MASK_PAGEADDR) | 
+	page_table_addr[page_index] = (page_table_addr[page_index] & MASK_PAGEADDR) |
 		flags;
 }
 
@@ -189,12 +189,12 @@ void sb_setup_ept_pagetable_4KB(void)
 	/* Setup PML4 */
 	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "Setup PLML4\n");
 	ept_info = (struct sb_ept_pagetable*)sb_get_pagetable_log_addr(EPT_TYPE_PML4, 0);
-	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] Setup PML4 %016lX\n", 
+	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] Setup PML4 %016lX\n",
 			(u64)ept_info);
 	memset(ept_info, 0, sizeof(struct sb_ept_pagetable));
 
 	base_addr = 0;
-	for (i = 0 ; i < EPT_PAGE_ENT_COUNT ; i++) 
+	for (i = 0 ; i < EPT_PAGE_ENT_COUNT ; i++)
 	{
 		if (i < g_ept_info.pml4_ent_count)
 		{
@@ -204,7 +204,7 @@ void sb_setup_ept_pagetable_4KB(void)
 
 			if (i == 0)
 			{
-				sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] %016lX\n", 
+				sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] %016lX\n",
 					(u64)next_page_table_addr);
 			}
 		}
@@ -219,11 +219,11 @@ void sb_setup_ept_pagetable_4KB(void)
 	/* Setup PDPTE PD. */
 	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "Setup PDPTEPD\n");
 	base_addr = 0;
-	for (j = 0 ; j < g_ept_info.pdpte_pd_page_count ; j++) 
+	for (j = 0 ; j < g_ept_info.pdpte_pd_page_count ; j++)
 	{
 		ept_info = (struct sb_ept_pagetable*)sb_get_pagetable_log_addr(EPT_TYPE_PDPTEPD,
 			j);
-		sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] Setup PDPTEPD [%d] %016lX\n", 
+		sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] Setup PDPTEPD [%d] %016lX\n",
 			j, (u64)ept_info);
 		memset(ept_info, 0, sizeof(struct sb_ept_pagetable));
 
@@ -233,17 +233,17 @@ void sb_setup_ept_pagetable_4KB(void)
 			loop_cnt = EPT_PAGE_ENT_COUNT;
 		}
 
-		for (i = 0 ; i < EPT_PAGE_ENT_COUNT ; i++) 
+		for (i = 0 ; i < EPT_PAGE_ENT_COUNT ; i++)
 		{
 			if (i < loop_cnt)
 			{
-				next_page_table_addr = (u64)sb_get_pagetable_phy_addr(EPT_TYPE_PDEPT, 
+				next_page_table_addr = (u64)sb_get_pagetable_phy_addr(EPT_TYPE_PDEPT,
 					(j * EPT_PAGE_ENT_COUNT) + i);
 				ept_info->entry[i] = next_page_table_addr | EPT_ALL_ACCESS;
-				
+
 				if (i == 0)
 				{
-					sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] %016lX\n", 
+					sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] %016lX\n",
 						(u64)next_page_table_addr);
 				}
 			}
@@ -259,11 +259,11 @@ void sb_setup_ept_pagetable_4KB(void)
 	/* Setup PDEPT. */
 	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "Setup PDEPT\n");
 	base_addr = 0;
-	for (j = 0 ; j < g_ept_info.pdept_page_count ; j++) 
+	for (j = 0 ; j < g_ept_info.pdept_page_count ; j++)
 	{
 		ept_info = (struct sb_ept_pagetable*)sb_get_pagetable_log_addr(EPT_TYPE_PDEPT,
 			j);
-		sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] Setup PDEPT [%d] %016lX\n", 
+		sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] Setup PDEPT [%d] %016lX\n",
 			j, (u64)ept_info);
 		memset(ept_info, 0, sizeof(struct sb_ept_pagetable));
 
@@ -273,17 +273,17 @@ void sb_setup_ept_pagetable_4KB(void)
 			loop_cnt = EPT_PAGE_ENT_COUNT;
 		}
 
-		for (i = 0 ; i < EPT_PAGE_ENT_COUNT ; i++) 
+		for (i = 0 ; i < EPT_PAGE_ENT_COUNT ; i++)
 		{
 			if (i < loop_cnt)
 			{
-				next_page_table_addr = (u64)sb_get_pagetable_phy_addr(EPT_TYPE_PTE, 
+				next_page_table_addr = (u64)sb_get_pagetable_phy_addr(EPT_TYPE_PTE,
 					(j * EPT_PAGE_ENT_COUNT) + i);
 				ept_info->entry[i] = next_page_table_addr | EPT_ALL_ACCESS;
-				
+
 				if (i == 0)
 				{
-					sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] %016lX\n", 
+					sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] %016lX\n",
 						(u64)next_page_table_addr);
 				}
 			}
@@ -298,9 +298,9 @@ void sb_setup_ept_pagetable_4KB(void)
 
 	/* Setup PTE. */
 	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "Setup PTE\n");
-	for (j = 0 ; j < g_ept_info.pte_page_count ; j++) 
+	for (j = 0 ; j < g_ept_info.pte_page_count ; j++)
 	{
-		ept_info = (struct sb_ept_pagetable*)sb_get_pagetable_log_addr(EPT_TYPE_PTE, 
+		ept_info = (struct sb_ept_pagetable*)sb_get_pagetable_log_addr(EPT_TYPE_PTE,
 			j);
 		memset(ept_info, 0, sizeof(struct sb_ept_pagetable));
 
@@ -310,15 +310,15 @@ void sb_setup_ept_pagetable_4KB(void)
 			loop_cnt = EPT_PAGE_ENT_COUNT;
 		}
 
-		for (i = 0 ; i < EPT_PAGE_ENT_COUNT ; i++) 
+		for (i = 0 ; i < EPT_PAGE_ENT_COUNT ; i++)
 		{
 			if (i < loop_cnt)
 			{
-				next_page_table_addr = ((u64)j * EPT_PAGE_ENT_COUNT + i) * 
+				next_page_table_addr = ((u64)j * EPT_PAGE_ENT_COUNT + i) *
 					EPT_PAGE_SIZE;
 				/*
 				 * Set uncacheable type by default.
-				 * Set write-back type to "System RAM" areas at the end of this 
+				 * Set write-back type to "System RAM" areas at the end of this
 				 * function.
 				 */
 				ept_info->entry[i] = next_page_table_addr | EPT_ALL_ACCESS;
@@ -353,36 +353,36 @@ int sb_alloc_ept_pages(void)
 	g_ept_info.pdept_page_count = CEIL(g_ept_info.pdept_ent_count, EPT_PAGE_ENT_COUNT);
 	g_ept_info.pte_page_count = CEIL(g_ept_info.pte_ent_count, EPT_PAGE_ENT_COUNT);
 
-	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "Setup EPT, Max RAM Size %ld\n", 
+	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "Setup EPT, Max RAM Size %ld\n",
 		g_max_ram_size);
-	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] EPT Size: %d\n", 
+	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] EPT Size: %d\n",
 		(int)sizeof(struct sb_ept_pagetable));
-	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] PML4 Entry Count: %d\n", 
+	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] PML4 Entry Count: %d\n",
 		(int)g_ept_info.pml4_ent_count);
-	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] PDPTE PD Entry Count: %d\n", 
+	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] PDPTE PD Entry Count: %d\n",
 		(int)g_ept_info.pdpte_pd_ent_count);
-	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] PDE PT Entry Count: %d\n", 
+	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] PDE PT Entry Count: %d\n",
 		(int)g_ept_info.pdept_ent_count);
-	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] PTE Entry Count: %d\n", 
+	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] PTE Entry Count: %d\n",
 		(int)g_ept_info.pte_ent_count);
 
-	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] PML4 Page Count: %d\n", 
+	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] PML4 Page Count: %d\n",
 		(int)g_ept_info.pml4_page_count);
-	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] PDPTE PD Page Count: %d\n", 
+	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] PDPTE PD Page Count: %d\n",
 		(int)g_ept_info.pdpte_pd_page_count);
-	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] PDE PT Page Count: %d\n", 
+	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] PDE PT Page Count: %d\n",
 		(int)g_ept_info.pdept_page_count);
-	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] PTE Page Count: %d\n", 
+	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] PTE Page Count: %d\n",
 		(int)g_ept_info.pte_page_count);
 
 	/* Allocate memory for page table. */
-	g_ept_info.pml4_page_addr_array = (u64*)vmalloc(g_ept_info.pml4_page_count * 
+	g_ept_info.pml4_page_addr_array = (u64*)vmalloc(g_ept_info.pml4_page_count *
 		sizeof(u64*));
-	g_ept_info.pdpte_pd_page_addr_array = (u64*)vmalloc(g_ept_info.pdpte_pd_page_count * 
+	g_ept_info.pdpte_pd_page_addr_array = (u64*)vmalloc(g_ept_info.pdpte_pd_page_count *
 		sizeof(u64*));
-	g_ept_info.pdept_page_addr_array = (u64*)vmalloc(g_ept_info.pdept_page_count * 
+	g_ept_info.pdept_page_addr_array = (u64*)vmalloc(g_ept_info.pdept_page_count *
 		sizeof(u64*));
-	g_ept_info.pte_page_addr_array = (u64*)vmalloc(g_ept_info.pte_page_count * 
+	g_ept_info.pte_page_addr_array = (u64*)vmalloc(g_ept_info.pte_page_count *
 		sizeof(u64*));
 
 	if ((g_ept_info.pml4_page_addr_array == NULL) ||
@@ -463,7 +463,7 @@ void sb_free_ept_pages(void)
 	{
 		kfree(g_ept_info.pdept_page_addr_array);
 		g_ept_info.pdept_page_addr_array = 0;
-	}	
+	}
 
 	if (g_ept_info.pte_page_addr_array != 0)
 	{
@@ -475,23 +475,23 @@ void sb_free_ept_pages(void)
 /*
  * Process callback of walk_system_ram_range().
  *
- * This function sets write-back cache type to EPT page. 
+ * This function sets write-back cache type to EPT page.
  */
-static int sb_callback_set_write_back_to_ram(unsigned long start, 
+static int sb_callback_set_write_back_to_ram(unsigned long start,
 	unsigned long size, void* arg)
 {
 	struct sb_ept_pagetable* ept_info;
 	unsigned long i;
 
 	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "System RAM start %016lX, end %016lX, "
-		"size %016lX\n", start * PAGE_SIZE, start * PAGE_SIZE + size * PAGE_SIZE, 
+		"size %016lX\n", start * PAGE_SIZE, start * PAGE_SIZE + size * PAGE_SIZE,
 		size * PAGE_SIZE);
-	
+
 	for (i = start ; i < start + size ; i++)
 	{
-		ept_info = (struct sb_ept_pagetable*)sb_get_pagetable_log_addr(EPT_TYPE_PTE, 
+		ept_info = (struct sb_ept_pagetable*)sb_get_pagetable_log_addr(EPT_TYPE_PTE,
 			i / EPT_PAGE_ENT_COUNT);
-		ept_info->entry[i %  EPT_PAGE_ENT_COUNT] |= EPT_BIT_MEM_TYPE_WB; 
+		ept_info->entry[i %  EPT_PAGE_ENT_COUNT] |= EPT_BIT_MEM_TYPE_WB;
 	}
 
 	return 0;
@@ -523,7 +523,7 @@ static void sb_setup_ept_system_ram_range(void)
 static int sb_callback_walk_ram(unsigned long start, unsigned long size, void* arg)
 {
 	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "System RAM start %016lX, end %016lX, "
-		"size %016lX\n", start * PAGE_SIZE, start * PAGE_SIZE + size * PAGE_SIZE, 
+		"size %016lX\n", start * PAGE_SIZE, start * PAGE_SIZE + size * PAGE_SIZE,
 		size * PAGE_SIZE);
 
 	if (g_ram_end < ((start + size) * PAGE_SIZE))

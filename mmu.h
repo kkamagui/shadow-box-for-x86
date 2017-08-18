@@ -42,8 +42,8 @@
 /* EPT page type. */
 #define EPT_TYPE_PML4			0
 #define EPT_TYPE_PDPTEPD		1
-#define EPT_TYPE_PDEPT			2   
-#define EPT_TYPE_PTE			3   
+#define EPT_TYPE_PDEPT			2
+#define EPT_TYPE_PTE			3
 
 /* EPT flags */
 #define EPT_READ				(0x01 << 0)
@@ -99,7 +99,7 @@ struct vm_page_entry_struct
 extern struct sb_ept_info g_ept_info;
 
 /* The function prototype for walk_system_ram_range. */
-typedef int (*my_walk_system_ram_range) (unsigned long start_pfn, unsigned long nr_pages, 
+typedef int (*my_walk_system_ram_range) (unsigned long start_pfn, unsigned long nr_pages,
 	void *arg, int (*func)(unsigned long, unsigned long, void*));
 
 /*

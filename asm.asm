@@ -119,11 +119,11 @@ sb_start_vmx:
 	jc .error
 	jz .error
 
-	mov rax, 1
+	mov rax, 0
 	jmp .end
 
 .error:
-	mov rax, 0
+	mov rax, -1
 .end:
 	;call enable_A20
 	ret
@@ -134,11 +134,11 @@ sb_clear_vmcs:
 	jc .error
 	jz .error
 
-	mov rax, 1
+	mov rax, 0
 	jmp .end
 
 .error:
-	mov rax, 0
+	mov rax, -1
 .end:
 	ret
 
@@ -148,11 +148,11 @@ sb_load_vmcs:
 	jc .error
 	jz .error
 
-	mov rax, 1
+	mov rax, 0
 	jmp .end
 
 .error:
-	mov rax, 0
+	mov rax, -1
 .end:
 	ret
 
@@ -162,11 +162,11 @@ sb_write_vmcs:
 	jc .error
 	jz .error
 
-	mov rax, 1
+	mov rax, 0
 	jmp .end
 
 .error:
-	mov rax, 0
+	mov rax, -1
 .end:
 	ret
 
@@ -176,11 +176,11 @@ sb_read_vmcs:
 	jc .error
 	jz .error
 
-	mov rax, 1
+	mov rax, 0
 	jmp .end
 
 .error:
-	mov rax, 0
+	mov rax, -1
 .end:
 	ret
 
@@ -340,7 +340,7 @@ sb_vm_launch:
 	jc .errorInvalid
 	jz .errorValid
 
-	mov rax, 1
+	mov rax, 0
 	jmp .end
 
 .errorInvalid:
@@ -348,7 +348,7 @@ sb_vm_launch:
 	jmp .end
 
 .errorValid:
-	mov rax, 0
+	mov rax, -2
 
 .end:
 	ret
@@ -357,7 +357,7 @@ sb_vm_launch:
 	; Start line of the guest.
 	; Now the core is in the guest.
 	pop rbx
-	mov rax, 1
+	mov rax, 0
 	ret
 
 ; Stub of VM exit callback.
@@ -392,7 +392,7 @@ sb_vm_resume:
 	jc .errorInvalid
 	jz .errorValid
 
-	mov rax, 1
+	mov rax, 0
 	jmp .end
 
 .errorInvalid:
@@ -400,7 +400,7 @@ sb_vm_resume:
 	jmp .end
 
 .errorValid:
-	mov rax, 0
+	mov rax, -2
 
 .end:
 	ret
@@ -408,7 +408,7 @@ sb_vm_resume:
 .success:
 	; Start line of the guest.
 	; Now the core is in the guest.
-	mov rax, 1
+	mov rax, 0
 	ret
 
 ; Get current RIP.
@@ -447,8 +447,12 @@ sb_pause_loop:
 	ret
 
 ; Call vmcall.
+;	VMcall argument:
+;		rax: service number
+;		rbx: argument
+;	Result:
+;		rax: return value
 sb_vm_call:
-	push rax
 	push rbx
 
 	mov rax, rdi
@@ -457,7 +461,6 @@ sb_vm_call:
 	vmcall
 
 	pop rbx
-	pop rax
 	ret
 
 ; Restore context from stack(vm_full_context).

@@ -55,7 +55,7 @@ extern void sb_invd(void);
 extern void sb_flush_gdtr(void);
 extern void sb_gen_int(u64 number);
 extern void sb_pause_loop(void);
-extern void sb_vm_call(u64 svr_num, void* arg);
+extern void* sb_vm_call(u64 svr_num, void* arg);
 extern void sb_restore_context_from_stack(u64 stack_addr);
 
 #endif

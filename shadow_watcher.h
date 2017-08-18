@@ -14,15 +14,15 @@
 #ifndef __SHADOW_WATCHER_H__
 #define __SHADOW_WATCHER_H__
 
-/* 
+/*
  * Macros.
  */
-/* 
+/*
  * Max count of tasks and modules.
- * If your system has more than 100000 tasks or 10000 modules, change these 
+ * If your system has more than 100000 tasks or 10000 modules, change these
  * values.
  */
-#define TASK_NODE_MAX		(100000)
+#define TASK_NODE_MAX		(PID_MAX_LIMIT)
 #define MODULE_NODE_MAX		(10000)
 
 /* Task information structure. */
@@ -40,6 +40,7 @@ struct sb_module_node
 {
 	struct list_head list;
 	struct module* module;
+	int protect;
 	char name[MODULE_NAME_LEN];
 };
 
