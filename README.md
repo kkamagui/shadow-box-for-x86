@@ -10,6 +10,8 @@
 ```
 
 # 1. Notice
+Shadow-box v2 (for ARM) is a next generation of Shadow-box v1 (for x86). If you want to know about Shadow-box for ARM, please visit [Shadow-box for ARM project](https://github.com/kkamagui/shadow-box-for-arm).
+
 # 1.1. Presentations and Papers
 Shadow-box is a lightweight and practical kernel protector, and it was introduced at security conferences below.
  - [Black Hat Asia 2017](https://www.blackhat.com/asia-17/briefings.html#myth-and-truth-about-hypervisor-based-kernel-protector-the-reason-why-you-need-shadow-box) and [Black Hat Asia Arsenal 2017](https://www.blackhat.com/asia-17/arsenal.html#shadow-box-lightweight-hypervisor-based-kernel-protector)
@@ -18,6 +20,9 @@ Shadow-box is a lightweight and practical kernel protector, and it was introduce
 You can watch the demo videos below.
  - [Demo 1](https://youtu.be/3_cFDVHWCXA): It shows that if you use only kernel-level protection mechanism such as page write-protect, rootkits can neutralize it. 
  - [Demo 2](https://youtu.be/s7iZYg4vP4E): It shows that if you use kernel-level protection mechanism with Shadow-box, then rootkits cannot neutralize it and cannot work. 
+
+[![Shadow-Box](https://img.youtube.com/vi/3_cFDVHWCXA/0.jpg)](https://www.youtube.com/watch?v=3_cFDVHWCXA)
+[![Shadow-Box](https://img.youtube.com/vi/s7iZYg4vP4E/0.jpg)](https://www.youtube.com/watch?v=s7iZYg4vP4E)
 
 # 1.2. Contributions
 We always welcome your contributions. Issue report, bug fix, new feature implementation, anything is alright. Feel free to send us. 
