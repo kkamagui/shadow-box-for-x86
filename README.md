@@ -12,6 +12,9 @@
 # 1. Notice
 Shadow-box v2 (for ARM) is a next generation of Shadow-box v1 (for x86). If you want to know about Shadow-box for ARM, please visit [Shadow-box for ARM project](https://github.com/kkamagui/shadow-box-for-arm).
 
+Major changes are as followed:
+ - Page Table Isolation (PTI) support
+
 # 1.1. Presentations and Papers
 Shadow-box is a lightweight and practical kernel protector, and it was introduced at security conferences below.
  - [Black Hat Asia 2017](https://www.blackhat.com/asia-17/briefings.html#myth-and-truth-about-hypervisor-based-kernel-protector-the-reason-why-you-need-shadow-box) and [Black Hat Asia Arsenal 2017](https://www.blackhat.com/asia-17/arsenal.html#shadow-box-lightweight-hypervisor-based-kernel-protector)

@@ -19,6 +19,7 @@
  */
 /* Page size macro. */
 #define VAL_256TB				((u64)256 * 1024 * 1024 * 1024 * 1024)
+#define VAL_1TB					((u64)1 * 1024 * 1024 * 1024 * 1024)
 #define VAL_512GB				((u64)512 * 1024 * 1024 * 1024)
 #define VAL_4GB					((u64)4* 1024 * 1024 * 1024)
 #define VAL_1GB					((u64)1024 * 1024 * 1024)

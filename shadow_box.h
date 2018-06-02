@@ -43,6 +43,7 @@
 #define SHADOWBOX_USE_DESC_TABLE		1
 #define SHADOWBOX_USE_PRE_TIMER			1
 #define SHADOWBOX_USE_PRE_SYMBOL		1
+#define SHADOWBOX_USE_VPID				0
 
 /*
  * Debug macros.
@@ -335,6 +336,7 @@
 /* Secondary processor-based VM execution control flags. */
 #define VM_BIT_VM_SEC_PROC_CTRL_USE_EPT			(0x01 << 1)
 #define VM_BIT_VM_SEC_PROC_CTRL_DESC_TABLE		(0x01 << 2)
+#define VM_BIT_VM_SEC_PROC_CTRL_ENABLE_VPID		(0x01 << 5)
 #define VM_BIT_VM_SEC_PROC_CTRL_UNREST_GUEST	(0x01 << 7)
 #define VM_BIT_VM_SEC_PROC_CTRL_ENABLE_INVPCID  (0x01 << 12)
 #define VM_BIT_VM_SEC_PROC_CTRL_ENABLE_XSAVE  	(0x01 << 20)

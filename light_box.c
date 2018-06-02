@@ -514,7 +514,7 @@ static void sb_print_shadow_box_logo(void)
 	sb_printf(LOG_LEVEL_NONE, "███████║██║  ██║██║  ██║██████╔╝╚██████╔╝╚███╔███╔╝      ██████╔╝╚██████╔╝██╔╝ ██╗\n");
 	sb_printf(LOG_LEVEL_NONE, "╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝  ╚═════╝  ╚══╝╚══╝       ╚═════╝  ╚═════╝ ╚═╝  ╚═╝\n");
 	sb_printf(LOG_LEVEL_NONE, "     \n");
-	sb_printf(LOG_LEVEL_NONE, "               Lightweight Hypervisor-Based Kernel Protector\n");
+	sb_printf(LOG_LEVEL_NONE, "              Lightweight Hypervisor-Based Kernel Protector v2.0.0\n");
 	sb_printf(LOG_LEVEL_NONE, "     \n");
 }
 
@@ -803,14 +803,14 @@ static void sb_alloc_vmcs_memory(void)
 
 	for (i = 0 ; i < cpu_count ; i++)
 	{
-		g_vmx_on_vmcs_log_addr[i] = kmalloc(VMCS_SIZE, GFP_KERNEL);
-		g_guest_vmcs_log_addr[i] = kmalloc(VMCS_SIZE, GFP_KERNEL);
+		g_vmx_on_vmcs_log_addr[i] = kmalloc(VMCS_SIZE, GFP_KERNEL | __GFP_COLD);
+		g_guest_vmcs_log_addr[i] = kmalloc(VMCS_SIZE, GFP_KERNEL | __GFP_COLD);
 		g_vm_exit_stack_addr[i] = (void*)vmalloc(g_stack_size);
 
-		g_io_bitmap_addrA[i] = kmalloc(IO_BITMAP_SIZE, GFP_KERNEL);
-		g_io_bitmap_addrB[i] = kmalloc(IO_BITMAP_SIZE, GFP_KERNEL);
-		g_msr_bitmap_addr[i] = kmalloc(IO_BITMAP_SIZE, GFP_KERNEL);
-		g_virt_apic_page_addr[i] = kmalloc(VIRT_APIC_PAGE_SIZE, GFP_KERNEL);
+		g_io_bitmap_addrA[i] = kmalloc(IO_BITMAP_SIZE, GFP_KERNEL | __GFP_COLD);
+		g_io_bitmap_addrB[i] = kmalloc(IO_BITMAP_SIZE, GFP_KERNEL | __GFP_COLD);
+		g_msr_bitmap_addr[i] = kmalloc(IO_BITMAP_SIZE, GFP_KERNEL | __GFP_COLD);
+		g_virt_apic_page_addr[i] = kmalloc(VIRT_APIC_PAGE_SIZE, GFP_KERNEL | __GFP_COLD);
 
 		if ((g_vmx_on_vmcs_log_addr[i] == NULL) || (g_guest_vmcs_log_addr[i] == NULL) ||
 			(g_vm_exit_stack_addr[i] == NULL) || (g_io_bitmap_addrA[i] == NULL) ||
@@ -933,7 +933,7 @@ static int sb_setup_memory_pool(void)
 	memset(g_memory_pool.pool, 0, sizeof(g_memory_pool.max_count));
 	for (i = 0 ; i < g_memory_pool.max_count ; i++)
 	{
-		g_memory_pool.pool[i] = (u64)kmalloc(VAL_4KB, GFP_KERNEL);
+		g_memory_pool.pool[i] = (u64)kmalloc(VAL_4KB, GFP_KERNEL | __GFP_COLD);
 		if (g_memory_pool.pool[i] == 0)
 		{
 			goto ERROR;
@@ -1636,7 +1636,7 @@ u64 sb_sync_page_table2(u64 addr)
 	u64 expand_value = 0;
 
 	/* Skip direct mapping area */
-	if (((u64)0xffff880000000000 <= addr) && (addr < (u64)0xffffc80000000000))
+	if (((u64)page_offset_base <= addr) && (addr < (u64)page_offset_base + (64 * VAL_1TB)))
 	{
 		return 0;
 	}
@@ -1762,7 +1762,7 @@ u64 sb_sync_page_table(u64 addr)
 	u64 expand_value = 0;
 
 	/* Skip direct mapping area */
-	if (((u64)0xffff880000000000 <= addr) && (addr < (u64)0xffffc80000000000))
+	if (((u64)page_offset_base <= addr) && (addr < (u64)page_offset_base + (64 * VAL_1TB)))
 	{
 		return 0;
 	}
@@ -2047,13 +2047,17 @@ static void sb_dup_page_table_for_host(void)
 	g_vm_init_phy_pml4 = virt_to_phys(org_pml4);
 	swapper_mm = (struct mm_struct*)sb_get_symbol_address("init_mm");
 	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "init_mm %016lX\n", swapper_mm);
-	vm_pml4 = kmalloc(0x1000, GFP_KERNEL);
-	memset(vm_pml4, 0, 0x1000);
+	vm_pml4 =  (struct sb_pagetable*)__get_free_pages(GFP_KERNEL_ACCOUNT |
+		__GFP_ZERO, PGD_ALLOCATION_ORDER);
+#if SHADOWBOX_USE_EPT
+	sb_hide_range((u64)vm_pml4, (u64)vm_pml4 + PAGE_SIZE * (0x1 << PGD_ALLOCATION_ORDER),
+		ALLOC_KMALLOC);
+#endif
 
 	g_vm_host_phy_pml4 = virt_to_phys(vm_pml4);
 
-	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "PML4 Logical %016lX, Physical %016lX\n",
-		vm_pml4, g_vm_host_phy_pml4);
+	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "PML4 Logical %016lX, Physical %016lX, "
+		"page_offset_base %016lX\n", vm_pml4, g_vm_host_phy_pml4, page_offset_base);
 
 	/* Create page tables */
 	for (i = 0 ; i < 512 ; i++)
@@ -2067,20 +2071,12 @@ static void sb_dup_page_table_for_host(void)
 			continue;
 		}
 
-		/* Direct mapped area (0xffff880000000000 ~ 0xffffc7ffffffffff) are
-		 * mapped 1:1 and 512GB size entry.
-		 */
-		if (((u64)0xffff880000000000 <= cur_addr) &&
-			(cur_addr < (u64)0xffffc80000000000))
-		{
-			vm_pml4->entry[i] = cur_addr | MASK_PAGE_SIZE_FLAG | MASK_PRESENT_FLAG |
-				MASK_XD_FLAG;
-			continue;
-		}
-
-		/* Allocate PDPTE_PD and copy */
-		vm_pml4->entry[i] = (u64)kmalloc(0x1000, GFP_KERNEL);
-		memset((void*)vm_pml4->entry[i], 0, 0x1000);
+		vm_pml4->entry[i] = (u64)kmalloc(0x1000, GFP_KERNEL | GFP_ATOMIC |
+			__GFP_COLD | __GFP_ZERO);
+#if SHADOWBOX_USE_EPT
+		sb_hide_range((u64)vm_pml4->entry[i], (u64)(vm_pml4->entry[i]) + PAGE_SIZE,
+			ALLOC_KMALLOC);
+#endif
 		vm_pml4->entry[i] = virt_to_phys((void*)(vm_pml4->entry[i]));
 		vm_pml4->entry[i] |= org_pml4->entry[i] & MASK_PAGEFLAG;
 
@@ -2102,8 +2098,12 @@ static void sb_dup_page_table_for_host(void)
 			}
 
 			/* Allocate PDEPT and copy */
-			vm_pdpte_pd->entry[j] = (u64)kmalloc(0x1000, GFP_KERNEL);
-			memset((void*)vm_pdpte_pd->entry[j], 0, 0x1000);
+			vm_pdpte_pd->entry[j] = (u64)kmalloc(0x1000, GFP_KERNEL | GFP_ATOMIC |
+				__GFP_COLD | __GFP_ZERO);
+#if SHADOWBOX_USE_EPT
+			sb_hide_range((u64)vm_pdpte_pd->entry[j], (u64)(vm_pdpte_pd->entry[j]) +
+				PAGE_SIZE, ALLOC_KMALLOC);
+#endif
 			vm_pdpte_pd->entry[j] = virt_to_phys((void*)(vm_pdpte_pd->entry[j]));
 			vm_pdpte_pd->entry[j] |= org_pdpte_pd->entry[j] & MASK_PAGEFLAG;
 
@@ -2125,8 +2125,12 @@ static void sb_dup_page_table_for_host(void)
 				}
 
 				/* Allocate PTE and copy */
-				vm_pdept->entry[k] = (u64)kmalloc(0x1000, GFP_KERNEL);
-				memset((void*)vm_pdept->entry[k], 0, 0x1000);
+				vm_pdept->entry[k] = (u64)kmalloc(0x1000, GFP_KERNEL | GFP_ATOMIC |
+					__GFP_COLD | __GFP_ZERO);
+#if SHADOWBOX_USE_EPT
+				sb_hide_range((u64)vm_pdept->entry[k], (u64)(vm_pdept->entry[k]) + PAGE_SIZE,
+					ALLOC_KMALLOC);
+#endif
 				vm_pdept->entry[k] = virt_to_phys((void*)(vm_pdept->entry[k]));
 				vm_pdept->entry[k] |= org_pdept->entry[k] & MASK_PAGEFLAG;
 
@@ -2219,9 +2223,10 @@ static int sb_vm_thread(void* argument)
 		schedule();
 	}
 
-	host_register = kmalloc(sizeof(struct sb_vm_host_register), GFP_KERNEL);
-	guest_register = kmalloc(sizeof(struct sb_vm_guest_register), GFP_KERNEL);
-	control_register = kmalloc(sizeof(struct sb_vm_control_register), GFP_KERNEL);
+	host_register = kmalloc(sizeof(struct sb_vm_host_register), GFP_KERNEL | __GFP_COLD);
+	guest_register = kmalloc(sizeof(struct sb_vm_guest_register), GFP_KERNEL | __GFP_COLD);
+	control_register = kmalloc(sizeof(struct sb_vm_control_register), GFP_KERNEL | __GFP_COLD);
+
 	if ((host_register == NULL) || (guest_register == NULL) ||
 			(control_register == NULL))
 	{
@@ -2313,7 +2318,7 @@ static int sb_vm_thread(void* argument)
 
 	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "VM [%d] Wait until stable status\n",
 		cpu_id);
-	mdelay(2000);
+	mdelay(10);
 
 	/* Synchronize processors. */
 	atomic_dec(&g_sync_flags);
@@ -3707,6 +3712,7 @@ static void sb_vm_exit_callback_pre_timer_expired(int cpu_id)
 
 	if (sb_is_system_shutdowning() == 0)
 	{
+#if SHADOWBOX_USE_DESC_TABLE
 		/* Check gdtr. */
 		if (sb_check_gdtr(cpu_id) == -1)
 		{
@@ -3716,6 +3722,7 @@ static void sb_vm_exit_callback_pre_timer_expired(int cpu_id)
 
 		/* Call the function of Shadow-watcher. */
 		sb_sw_callback_vm_timer(cpu_id);
+#endif
 	}
 
 	/* Reset VM timer. */
@@ -4060,8 +4067,8 @@ static void sb_setup_vm_control_register(struct sb_vm_control_register*
 	sec_flags |= VM_BIT_VM_SEC_PROC_CTRL_DESC_TABLE;
 #endif
 
- #if SHADOWBOX_USE_EPT
- #if SHADOWBOX_USE_UNRESTRICTED
+#if SHADOWBOX_USE_EPT
+#if SHADOWBOX_USE_UNRESTRICTED
 	sec_flags |= VM_BIT_VM_SEC_PROC_CTRL_UNREST_GUEST;
 #endif
 
@@ -4086,6 +4093,16 @@ static void sb_setup_vm_control_register(struct sb_vm_control_register*
 			sec_flags |= VM_BIT_VM_SEC_PROC_CTRL_ENABLE_XSAVE;
 		}
 	}
+
+#if SHADOWBOX_USE_VPID
+	if ((sb_rdmsr(MSR_IA32_VMX_PROCBASED_CTLS2) >> 32) &
+		VM_BIT_VM_SEC_PROC_CTRL_ENABLE_VPID)
+	{
+		sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] Support Enable VPID\n",
+			cpu_id);
+		sec_flags |= VM_BIT_VM_SEC_PROC_CTRL_ENABLE_VPID;
+	}
+#endif
 
 #if SHADOWBOX_USE_PRE_TIMER
 	sb_vm_control_register->pin_based_ctrl =
@@ -4368,6 +4385,10 @@ static void sb_setup_vmcs(const struct sb_vm_host_register* sb_vm_host_register,
 
 	/* Setup VM control information. */
 	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "Set VM Control Register\n");
+#if SHADOWBOX_USE_VPID
+	result = sb_write_vmcs(VM_CTRL_VIRTUAL_PROCESS_ID, 1);
+	sb_print_vm_result("    [*] VIRTUAL_PROCESS_ID", result);
+#endif
 	result = sb_write_vmcs(VM_CTRL_PIN_BASED_VM_EXE_CTRL,
 		sb_vm_control_register->pin_based_ctrl);
 	sb_print_vm_result("    [*] PIN Based Ctrl", result);
