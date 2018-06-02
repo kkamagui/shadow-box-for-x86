@@ -89,6 +89,7 @@
 #endif /* SHADOWBOX_HARD_TEST */
 
 #define VM_PRE_TIMER_VALUE	((u64)tsc_khz * 1024 * TIMER_INTERVAL / 1000000)
+#define VM_MCE_TIMER_VALUE	(1)
 
 /* Shutdown timeout limit, 10 minute. */
 #define SHUTDOWN_TIME_LIMIT_MS				(10 * 60 * 1000)
@@ -100,7 +101,7 @@
 #define MAX_STACK_SIZE						0x800000
 
 #define WORK_AROUND_MAX_COUNT				30
-#define SYMBOL_MAX_COUNT					22
+#define SYMBOL_MAX_COUNT					25
 
 #define VMCS_SIZE							0x2000
 #define IO_BITMAP_SIZE						0x1000
@@ -391,13 +392,23 @@
 #define VM_INST_INFO_ADDR_SIZE_32BIT				1
 #define VM_INST_INFO_ADDR_SIZE_64BIT				2
 
-/* VM exit interrupt information fields. */
+/* VM exit interrupt information fields and vector. */
 #define VM_EXIT_INT_INFO_INT_TYPE(info)				(((info) >> 8) & 0x07)
-
+#define VM_EXIT_INT_INFO_VECTOR(info)				((info) & 0xFF)
+ 
+/* VM exit interrupt type. */
 #define VM_EXIT_INT_TYPE_EXT						0
 #define VM_EXIT_INT_TYPE_NMI						2
 #define VM_EXIT_INT_TYPE_HW							3
 #define VM_EXIT_INT_TYPE_SW							6
+
+/* Exception types. */
+#define VM_INT_DIVIDE_ERROR							0
+#define VM_INT_DEBUG_EXCEPTION						1
+#define VM_INT_NMI									2
+#define VM_INT_BREAKPOINT							3
+#define VM_INT_OVERFLOW								4
+#define VM_INT_MACHINE_CHECK						18
 
 /* VM exit reason. */
 #define VM_EXIT_REASON_EXCEPT_OR_NMI				(0)
@@ -525,9 +536,10 @@
 #define CR3_BIT_PCD								((u64)0x01 << 4)
 
 /* CR4 Flags. */
-#define CR4_BIT_VMXE							(0x01 << 13)
-#define CR4_BIT_SMXE							(0x01 << 14)
-
+#define CR4_BIT_MCE								((u64)0x01 << 6)
+#define CR4_BIT_VMXE							((u64)0x01 << 13)
+#define CR4_BIT_SMXE							((u64)0x01 << 14)
+ 
 /* Shadow-box error codes. */
 #define ERROR_SUCCESS							0
 #define ERROR_NOT_START						 	1

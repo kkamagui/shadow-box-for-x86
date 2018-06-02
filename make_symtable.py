@@ -53,6 +53,11 @@ def get_symbol_table_from_file(filename):
 
 		"logbuf_lock",
 
+		# Symbols for Machine Check Error
+		"check_interval",
+		"mce_timer_delete_all",
+		"mce_cpu_restart",
+ 
 		# Symbols for Workaround 
 		"__ip_select_ident",
 		"secure_dccpv6_sequence_number",

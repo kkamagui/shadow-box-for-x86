@@ -151,8 +151,9 @@ static void sb_dump_vm_control_register(struct sb_vm_control_register*
 	pstVMControl);
 static u64 sb_get_desc_base(u64 qwOffset);
 static u64 sb_get_desc_access(u64 qwOffset);
-static void sb_remove_int1_exception_from_vm(void);
+static void sb_remove_int_exception_from_vm(int vector);
 static void sb_print_vm_result(const char* pcData, int iResult);
+static void sb_disable_and_change_machine_check_timer(void);
 static int sb_vm_thread(void* pvArgument);
 static void sb_dup_page_table_for_host(void);
 static void sb_protect_kernel_ro_area(void);
@@ -2199,6 +2200,39 @@ void sb_hang(char* string)
 	} while(sb_is_system_shutdowning() == 0);
 }
 
+/*
+ * Disable machine check exception and change the check interval.
+ */
+static void sb_disable_and_change_machine_check_timer(void)
+{
+	typedef void (*mce_timer_delete_all) (void);
+	typedef void (*mce_cpu_restart) (void *data);
+	u64 cr4;
+
+	unsigned long *check_interval;
+	mce_timer_delete_all delete_timer_fp;
+	mce_cpu_restart restart_cpu_fp;
+
+	/* Disable MCE event. */
+	cr4 = sb_get_cr4();
+	cr4 &= ~(CR4_BIT_MCE);
+	sb_set_cr4(cr4);
+	disable_irq(VM_INT_MACHINE_CHECK);
+
+	/* Change MCE polling timer. */
+	if (smp_processor_id() == 0)
+	{
+		check_interval = (unsigned long *)sb_get_symbol_address("check_interval");
+		delete_timer_fp = (mce_timer_delete_all)sb_get_symbol_address("mce_timer_delete_all");
+		restart_cpu_fp = (mce_cpu_restart)sb_get_symbol_address("mce_cpu_restart");
+
+		/* Set seconds for timer interval and restart timer. */
+		*check_interval = VM_MCE_TIMER_VALUE;
+
+		delete_timer_fp();
+		on_each_cpu(restart_cpu_fp, NULL, 1);
+	}
+}
 
 /*
  * Enable VT-x and run Shadow-box.
@@ -2215,6 +2249,9 @@ static int sb_vm_thread(void* argument)
 	int cpu_id;
 
 	cpu_id = smp_processor_id();
+
+	/* Disable MCE exception. */
+	sb_disable_and_change_machine_check_timer();
 
 	/* Synchronize processors. */
 	atomic_dec(&g_thread_entry_count);
@@ -2448,9 +2485,9 @@ static int sb_init_vmx(int cpu_id)
 	u64 value;
 	int result;
 
+	// To handle the SMXE exception.
 	if (g_support_smx)
 	{
-		// To handle the SMXE exception.
 		cr4 = sb_get_cr4();
 		cr4 |= CR4_BIT_SMXE;
 		sb_set_cr4(cr4);
@@ -2883,16 +2920,26 @@ static void sb_vm_exit_callback_int(int cpu_id, unsigned long dr6, struct
 {
 	unsigned long dr7;
 	u64 info_field;
-
+	int vector;
+	int type;
+ 
 	// 8:10 bit is NMI
 	sb_read_vmcs(VM_DATA_VM_EXIT_INT_INFO, &info_field);
-	if (VM_EXIT_INT_INFO_INT_TYPE(info_field) == VM_EXIT_INT_TYPE_NMI)
+	vector = VM_EXIT_INT_INFO_VECTOR(info_field);
+	type = VM_EXIT_INT_INFO_INT_TYPE(info_field);
+
+	if (type == VM_EXIT_INT_TYPE_NMI)
 	{
 		sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] ===================WARNING======================\n",
 			cpu_id);
 		sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] NMI Interrupt Occured\n", cpu_id);
 		sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] ===================WARNING======================\n",
 			cpu_id);
+	}
+	else if (vector != VM_INT_DEBUG_EXCEPTION)
+	{
+		sb_remove_int_exception_from_vm(vector);
+		return ;
 	}
 
 	/* For stable shutdown, skip processing if system is shutdowning. */
@@ -2931,7 +2978,7 @@ static void sb_vm_exit_callback_int(int cpu_id, unsigned long dr6, struct
 	dr7 |= RFLAGS_BIT_RF;
 	sb_write_vmcs(VM_GUEST_RFLAGS, dr7);
 
-	sb_remove_int1_exception_from_vm();
+	sb_remove_int_exception_from_vm(vector);
 }
 
 /*
@@ -3493,12 +3540,12 @@ void sb_insert_exception_to_vm(void)
 /*
  * Remove INT1 exception from the guest.
  */
-static void sb_remove_int1_exception_from_vm(void)
+static void sb_remove_int_exception_from_vm(int vector)
 {
 	u64 info_field;
 
 	sb_read_vmcs(VM_CTRL_VM_ENTRY_INT_INFO_FIELD, &info_field);
-	info_field &= ~((u64) 0x01 << 1);
+	info_field &= ~((u64) 0x01 << vector);
 	sb_write_vmcs(VM_CTRL_VM_ENTRY_INT_INFO_FIELD, info_field);
 }
 
@@ -3776,7 +3823,7 @@ static void sb_setup_vm_host_register(struct sb_vm_host_register* sb_vm_host_reg
 
 	sb_vm_host_register->cr0 = sb_get_cr0();
 
-	/* Using Shaodow CR3 for world separation. */
+	/* Using Shadow CR3 for world separation in host. */
 	sb_vm_host_register->cr3 = g_vm_host_phy_pml4;
 	sb_vm_host_register->cr4 = sb_get_cr4();
 
@@ -4138,7 +4185,7 @@ static void sb_setup_vm_control_register(struct sb_vm_control_register*
 #endif
 
 #if SHADOWBOX_USE_HW_BREAKPOINT
-	sb_vm_control_register->except_bitmap = 0x02;
+	sb_vm_control_register->except_bitmap = ((u64)0x01 << VM_INT_DEBUG_EXCEPTION);
 #else
 	sb_vm_control_register->except_bitmap = 0x00;
 #endif
