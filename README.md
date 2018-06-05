@@ -31,13 +31,13 @@ You can watch the demo videos below.
 We always welcome your contributions. Issue report, bug fix, new feature implementation, anything is alright. Feel free to send us. 
 
 # 1.3. License
-Shadow-box has dual license, GPL v2 and MIT. You can choose any license you want.
+Shadow-box has the dual license, GPL v2 and MIT. You can choose any license you want.
 
 # 2. Introduction of Shadow-Box
 Shadow-box is a security monitoring framework for operating systems using state-of-the-art virtualization technologies. 
 Shadow-box has a novel architecture inspired by a shadow play. We made Shadow-box from scratch, and it is primarily composed of a lightweight hypervisor and a security monitor. 
 
-The lightweight hypervisor, Light-box, efficiently isolates an OS inside a guest machine, and projects static and dynamic kernel objects of the guest into the host machine so that our security monitor in the host can investigate the projected images. 
+The lightweight hypervisor, Light-box, efficiently isolates an OS inside a guest machine and projects static and dynamic kernel objects of the guest into the host machine so that our security monitor in the host can investigate the projected images. 
 The security monitor, Shadow-Watcher, places event monitors on static kernel elements and tests security of dynamic kernel elements. 
 
 Shadow-box manipulates address translations from the guest physical address to the host physical address in order to exclude unauthorized accesses to the host and the hypervisor spaces. In that way, Shadow-box can properly introspect the guest operating system and mediate all accesses, even when the operating system is compromised.
@@ -47,14 +47,14 @@ We explain how we designed the Light-box and the Shadow-watcher. It is designed 
 
 <center> <img src="document/images/architecture.png" width="500"> </center>
 
-We developed a security monitoring framework, Shadow-box that keeps an OS safe by filtering out unauthorized accesses to important kernel elements and defending integrity of kernel elements periodically. Shadow-box relies upon its two subparts: a lightweight hypervisor and a security monitor. The lightweight hypervisor, Light-box, efficiently isolates an OS inside a guest machine, and projects static and dynamic kernel objects of the guest into the host machine, so that our security monitor in the host can investigate the projected images. The security monitor, Shadow-watcher, places event monitors on static kernel elements and tests security of dynamic kernel elements. Running inside the host, it can test the security of the guest without malicious interference even when the guest OS is compromised.
+We developed a security monitoring framework, Shadow-box that keeps an OS safe by filtering out unauthorized accesses to important kernel elements and defending the integrity of kernel elements periodically. Shadow-box relies upon its two subparts: a lightweight hypervisor and a security monitor. The lightweight hypervisor, Light-box, efficiently isolates an OS inside a guest machine and projects static and dynamic kernel objects of the guest into the host machine, so that our security monitor in the host can investigate the projected images. The security monitor, Shadow-watcher, places event monitors on static kernel elements and tests security of dynamic kernel elements. Running inside the host, it can test the security of the guest without malicious interference even when the guest OS is compromised.
 
 If you want to know more about Shadow-box, please see my presentation and paper at [Black Hat Asia 2017](https://www.blackhat.com/asia-17/briefings.html#myth-and-truth-about-hypervisor-based-kernel-protector-the-reason-why-you-need-shadow-box) and [HITBSecConf 2017](http://conference.hitb.org/hitbsecconf2017ams/sessions/shadowbox-the-practical-and-omnipotent-sandbox/).
 
 
 # 3. How to Build 
 # 3.1. Prepare Kernel Build Environment (Ubuntu 16.04)
-Because the Shadow-box protects the code area of kernel, it conflicts with the runtime kernel patch feature (CONFIG_JUMP_LABEL). Therefore, if your kernel uses the runtime kernel patch feature, you should remove the feature. To remove it, you need to set a kernel build environment, change the kernel options, and install. The process is as follows.
+Because the Shadow-box protects the code area of the kernel, it conflicts with the runtime kernel patch feature (CONFIG_JUMP_LABEL). Therefore, if your kernel uses the runtime kernel patch feature, you should remove the feature. To remove it, you need to set a kernel build environment, change the kernel options, and install. The process is as follows.
 
 ```bash
 # Prepare kernel source and build environment.
