@@ -104,7 +104,7 @@ int sb_prepare_shadow_watcher(void)
 	g_task_manager.pool = vmalloc(size);
 	if (g_task_manager.pool == NULL)
 	{
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "    [*] Task pool allcation fail\n");
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "    [*] Task pool allcation fail\n");
 		return -1;
 	}
 	memset(g_task_manager.pool, 0, size);
@@ -122,7 +122,7 @@ int sb_prepare_shadow_watcher(void)
 	g_module_manager.pool = vmalloc(size);
 	if (g_module_manager.pool == NULL)
 	{
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "    [*] Module pool allcation fail\n");
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "    [*] Module pool allcation fail\n");
 		return -1;
 	}
 	memset(g_module_manager.pool, 0, size);
@@ -323,10 +323,10 @@ void sb_sync_sw_page_internal(u64 addr)
 	if (ret_value != 0)
 	{
 #if SHADOWBOX_USE_PAGE_DEBUG
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "===================INFO======================");
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "sb_sync_page_table ret is not null "
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "===================INFO======================");
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "sb_sync_page_table ret is not null "
 			"ret:" "%016lX addr:%016lX\n", ret_value, addr);
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "===================INFO======================");
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "===================INFO======================");
 #endif /* SHADOWBOX_USE_PAGE_DEBUG */
 	}
 
@@ -451,20 +451,20 @@ static void sb_validate_sw_task_list(int count_of_task_list)
 
 	if ((free_count + exist_count) != TASK_NODE_MAX)
 	{
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "===============================================================\n");
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "Task count is not match, free count [%d], "
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "===============================================================\n");
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "Task count is not match, free count [%d], "
 			"exist count [%d], max count [%d]\n", free_count, exist_count,
 			TASK_NODE_MAX);
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "===============================================================\n");
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "===============================================================\n");
 	}
 
 	if (count_of_task_list < exist_count)
 	{
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "===============================================================\n");
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "Task count is not match, count of task "
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "===============================================================\n");
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "Task count is not match, count of task "
 			"list[%d], exist count of task_manager [%d]\n", count_of_task_list,
 			exist_count);
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "===============================================================\n");
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "===============================================================\n");
 	}
 }
 
@@ -481,20 +481,20 @@ static void sb_validate_sw_module_list(int count_of_module_list)
 
 	if ((free_count + exist_count) != MODULE_NODE_MAX)
 	{
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "===============================================================");
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "Module count is not match, free count [%d], "
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "===============================================================");
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "Module count is not match, free count [%d], "
 			"exist count [%d], max count [%d]", free_count, exist_count,
 			MODULE_NODE_MAX);
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "===============================================================");
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "===============================================================");
 	}
 
 	if (count_of_module_list < exist_count)
 	{
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "===============================================================");
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "Module count is not match, count of "
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "===============================================================");
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "Module count is not match, count of "
 			"module list [%d], exist count of module_manager [%d]",
 			count_of_module_list, exist_count);
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "===============================================================");
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "===============================================================");
 	}
 }
 #endif
@@ -521,7 +521,7 @@ static int sb_check_sw_task_list(int cpu_id)
 
 	if (g_task_count > cur_count)
 	{
-		sb_printf(LOG_LEVEL_NONE, LOG_ERROR "VM [%d] Task count is different, "
+		sb_printf(LOG_LEVEL_ERROR, LOG_ERROR "VM [%d] Task count is different, "
 			"expect=%d real=%d\n", cpu_id, g_task_count, cur_count);
 
 		list_for_each_safe(node, next, &(g_task_manager.existing_node_head))
@@ -533,7 +533,7 @@ static int sb_check_sw_task_list(int cpu_id)
 				continue;
 			}
 
-			sb_printf(LOG_LEVEL_NONE, LOG_ERROR "VM [%d] Hidden task, PID=%d "
+			sb_printf(LOG_LEVEL_ERROR, LOG_ERROR "VM [%d] Hidden task, PID=%d "
 				"TGID=%d fork name=\"%s\" process name=\"%s\"\n", cpu_id,
 				target->pid, target->tgid, target->comm, target->task->comm);
 
@@ -584,7 +584,7 @@ void sb_sw_callback_insmod(int cpu_id)
 	mod = list_entry((mod_head_node->next), struct module, list);
 	sb_sync_sw_page((u64)mod, sizeof(struct module));
 
-	sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] Kernel module is loaded, "
+	sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] Kernel module is loaded, "
 		"current PID=%d PPID=%d process name=%s module=%s\n", cpu_id,
 		current->pid, current->parent->pid, current->comm, mod->name);
 
@@ -643,7 +643,7 @@ void sb_sw_callback_rmmod(int cpu_id, struct sb_vm_exit_guest_register* context)
 		sb_set_all_access_range(mod_base, mod_base + mod_ro_size, ALLOC_VMALLOC);
 		sb_delete_ro_area(mod_base, mod_base + mod_ro_size);
 
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] Kernel module is unloaded, "
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] Kernel module is unloaded, "
 			"current PID=%d PPID=%d process name=%s module=%s\n", cpu_id,
 			current->pid, current->parent->pid, current->comm, mod->name);
 
@@ -655,14 +655,14 @@ void sb_sw_callback_rmmod(int cpu_id, struct sb_vm_exit_guest_register* context)
 		if (mod == THIS_MODULE)
 		{
 			/* Shadow-box should not be unloaded. */
-			sb_printf(LOG_LEVEL_NONE, LOG_ERROR "VM [%d] Process try to unload, "
+			sb_printf(LOG_LEVEL_ERROR, LOG_ERROR "VM [%d] Process try to unload, "
 				"Shadow-box. current PID=%d PPID=%d process name=%s\n", cpu_id,
 				current->pid, current->parent->pid, current->comm);
 		}
 		else
 		{
 			/* Shadow-box-helper should not be unloaded. */
-			sb_printf(LOG_LEVEL_NONE, LOG_ERROR "VM [%d] Process try to unload, "
+			sb_printf(LOG_LEVEL_ERROR, LOG_ERROR "VM [%d] Process try to unload, "
 				"Shado-box-helper. current PID=%d PPID=%d process name=%s\n", 
 				cpu_id, current->pid, current->parent->pid, current->comm);
 		}
@@ -714,7 +714,7 @@ static int sb_check_sw_module_list(int cpu_id)
 
 	if (g_module_count > count)
 	{
-		sb_printf(LOG_LEVEL_NONE, LOG_ERROR "VM [%d] Module count is different, "
+		sb_printf(LOG_LEVEL_ERROR, LOG_ERROR "VM [%d] Module count is different, "
 			"expect=%d real=%d\n", cpu_id, g_module_count, count);
 
 		list_for_each_safe(node, next, &(g_module_manager.existing_node_head))
@@ -725,7 +725,7 @@ static int sb_check_sw_module_list(int cpu_id)
 				continue;
 			}
 
-			sb_printf(LOG_LEVEL_NONE, LOG_ERROR "VM [%d] Hidden module, module "
+			sb_printf(LOG_LEVEL_ERROR, LOG_ERROR "VM [%d] Hidden module, module "
 				"name=\"%s\" ptr=%016lX\n", cpu_id, target->name, target->module);
 
 			sw_del_module_from_sw_module_manager(target->module);
@@ -810,7 +810,7 @@ static int sb_get_task_count(void)
 
 		if (count >= TASK_NODE_MAX - 1)
 		{
-			sb_printf(LOG_LEVEL_NONE, LOG_ERROR "Task count overflows\n");
+			sb_printf(LOG_LEVEL_ERROR, LOG_ERROR "Task count overflows\n");
 			break;
 		}
 		sb_sync_sw_page((u64)(iter->tasks.next), sizeof(struct task_struct));
@@ -831,7 +831,7 @@ static int sb_add_task_to_sw_task_manager(struct task_struct *task)
 
 	if (list_empty(&(g_task_manager.free_node_head)))
 	{
-		sb_printf(LOG_LEVEL_NONE, LOG_ERROR "Task count overflows\n");
+		sb_printf(LOG_LEVEL_ERROR, LOG_ERROR "Task count overflows\n");
 		sb_error_log(ERROR_TASK_OVERFLOW);
 		return -1;
 	}
@@ -878,7 +878,7 @@ static int sb_add_module_to_sw_module_manager(struct module *mod, int protect)
 
 	if (list_empty(&(g_module_manager.free_node_head)))
 	{
-		sb_printf(LOG_LEVEL_NONE, LOG_ERROR "Module count overflows\n");
+		sb_printf(LOG_LEVEL_ERROR, LOG_ERROR "Module count overflows\n");
 		sb_error_log(ERROR_MODULE_OVERFLOW);
 		return -1;
 	}
@@ -1044,7 +1044,7 @@ static int sb_check_sw_inode_op_fields(int cpu_id, const struct inode_operations
 
 	if (error != 0)
 	{
-		sb_printf(LOG_LEVEL_NONE, LOG_ERROR "VM [%d] Function pointer attack is "
+		sb_printf(LOG_LEVEL_ERROR, LOG_ERROR "VM [%d] Function pointer attack is "
 			"detected, function pointer=\"%s inode_op\"\n", cpu_id, obj_name);
 
 		sb_error_log(ERROR_KERNEL_MODIFICATION);
@@ -1107,7 +1107,7 @@ static int sb_check_sw_file_op_fields(int cpu_id, const struct file_operations* 
 
 	if (error != 0)
 	{
-		sb_printf(LOG_LEVEL_NONE, LOG_ERROR "VM [%d] Function pointer attack is "
+		sb_printf(LOG_LEVEL_ERROR, LOG_ERROR "VM [%d] Function pointer attack is "
 			"detected, function pointer=\"%s file_op\"\n", cpu_id, obj_name);
 		sb_error_log(ERROR_KERNEL_MODIFICATION);
 		return -1;
@@ -1127,7 +1127,7 @@ static int sb_check_sw_vfs_object(int cpu_id)
 	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "VM [%d] Check /proc vfs field\n", cpu_id);
 	if (g_proc_file_ptr == NULL)
 	{
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d]     [*] Check /proc vfs field "
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d]     [*] Check /proc vfs field "
 			"fail\n", cpu_id);
 	}
 	else
@@ -1149,7 +1149,7 @@ static int sb_check_sw_vfs_object(int cpu_id)
 	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "VM [%d] Check / vfs field\n", cpu_id);
 	if (g_root_file_ptr == NULL)
 	{
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d]     [*] Check / vfs field fail\n",
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d]     [*] Check / vfs field fail\n",
 			cpu_id);
 	}
 	else
@@ -1195,7 +1195,7 @@ static int sb_check_sw_tcp_seq_afinfo_fields(int cpu_id, const struct tcp_seq_af
 
 	if (error != 0)
 	{
-		sb_printf(LOG_LEVEL_NONE, LOG_ERROR "VM [%d] Function pointer attack is "
+		sb_printf(LOG_LEVEL_ERROR, LOG_ERROR "VM [%d] Function pointer attack is "
 			"detected, function pointer=\"%s tcp_seq_afinfo\"\n", cpu_id, obj_name);
 
 		sb_error_log(ERROR_KERNEL_MODIFICATION);
@@ -1227,7 +1227,7 @@ static int sb_check_sw_udp_seq_afinfo_fields(int cpu_id, const struct udp_seq_af
 
 	if (error != 0)
 	{
-		sb_printf(LOG_LEVEL_NONE, LOG_ERROR "VM [%d] Function pointer attack is "
+		sb_printf(LOG_LEVEL_ERROR, LOG_ERROR "VM [%d] Function pointer attack is "
 			"detected, function pointer=\"%s udp_seq_afinfo\"\n", cpu_id, obj_name);
 
 		sb_error_log(ERROR_KERNEL_MODIFICATION);
@@ -1271,7 +1271,7 @@ static int sb_check_sw_proto_op_fields(int cpu_id, const struct proto_ops* op, c
 	error |= !sb_is_addr_in_ro_area(op->set_peek_off);
 	if (error != 0)
 	{
-		sb_printf(LOG_LEVEL_NONE, LOG_ERROR "VM [%d] Function pointer attack is "
+		sb_printf(LOG_LEVEL_ERROR, LOG_ERROR "VM [%d] Function pointer attack is "
 			"detected, function pointer=\"%s proto_seq_afinfo\"\n", cpu_id, obj_name);
 
 		sb_error_log(ERROR_KERNEL_MODIFICATION);

@@ -236,7 +236,7 @@ static int __init shadow_box_init(void)
 	if (sb_get_kernel_version_index() == -1)
 	{
 		name = utsname();
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "Kernel version is not supported, [%s]",
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "Kernel version is not supported, [%s]",
 			name->version);
 		sb_error_log(ERROR_KERNEL_VERSION_MISMATCH);
 		return -1;
@@ -260,7 +260,7 @@ static int __init shadow_box_init(void)
 	}
 	else
 	{
-		sb_printf(LOG_LEVEL_NONE, LOG_ERROR "    [*] VMX not support\n");
+		sb_printf(LOG_LEVEL_ERROR, LOG_ERROR "    [*] VMX not support\n");
 		sb_error_log(ERROR_HW_NOT_SUPPORT);
 		return -1;
 	}
@@ -507,16 +507,16 @@ static void __exit shadow_box_exit(void)
  */
 static void sb_print_shadow_box_logo(void)
 {
-	sb_printf(LOG_LEVEL_NONE, "     \n");
-	sb_printf(LOG_LEVEL_NONE, "███████╗██╗  ██╗ █████╗ ██████╗  ██████╗ ██╗    ██╗      ██████╗  ██████╗ ██╗  ██╗\n");
-	sb_printf(LOG_LEVEL_NONE, "██╔════╝██║  ██║██╔══██╗██╔══██╗██╔═══██╗██║    ██║      ██╔══██╗██╔═══██╗╚██╗██╔╝\n");
-	sb_printf(LOG_LEVEL_NONE, "███████╗███████║███████║██║  ██║██║   ██║██║ █╗ ██║█████╗██████╔╝██║   ██║ ╚███╔╝ \n");
-	sb_printf(LOG_LEVEL_NONE, "╚════██║██╔══██║██╔══██║██║  ██║██║   ██║██║███╗██║╚════╝██╔══██╗██║   ██║ ██╔██╗ \n");
-	sb_printf(LOG_LEVEL_NONE, "███████║██║  ██║██║  ██║██████╔╝╚██████╔╝╚███╔███╔╝      ██████╔╝╚██████╔╝██╔╝ ██╗\n");
-	sb_printf(LOG_LEVEL_NONE, "╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝  ╚═════╝  ╚══╝╚══╝       ╚═════╝  ╚═════╝ ╚═╝  ╚═╝\n");
-	sb_printf(LOG_LEVEL_NONE, "     \n");
-	sb_printf(LOG_LEVEL_NONE, "              Lightweight Hypervisor-Based Kernel Protector v2.0.0\n");
-	sb_printf(LOG_LEVEL_NONE, "     \n");
+	sb_printf(LOG_LEVEL_ERROR, "     \n");
+	sb_printf(LOG_LEVEL_ERROR, "███████╗██╗  ██╗ █████╗ ██████╗  ██████╗ ██╗    ██╗      ██████╗  ██████╗ ██╗  ██╗\n");
+	sb_printf(LOG_LEVEL_ERROR, "██╔════╝██║  ██║██╔══██╗██╔══██╗██╔═══██╗██║    ██║      ██╔══██╗██╔═══██╗╚██╗██╔╝\n");
+	sb_printf(LOG_LEVEL_ERROR, "███████╗███████║███████║██║  ██║██║   ██║██║ █╗ ██║█████╗██████╔╝██║   ██║ ╚███╔╝ \n");
+	sb_printf(LOG_LEVEL_ERROR, "╚════██║██╔══██║██╔══██║██║  ██║██║   ██║██║███╗██║╚════╝██╔══██╗██║   ██║ ██╔██╗ \n");
+	sb_printf(LOG_LEVEL_ERROR, "███████║██║  ██║██║  ██║██████╔╝╚██████╔╝╚███╔███╔╝      ██████╔╝╚██████╔╝██╔╝ ██╗\n");
+	sb_printf(LOG_LEVEL_ERROR, "╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝  ╚═════╝  ╚══╝╚══╝       ╚═════╝  ╚═════╝ ╚═╝  ╚═╝\n");
+	sb_printf(LOG_LEVEL_ERROR, "     \n");
+	sb_printf(LOG_LEVEL_ERROR, "              Lightweight Hypervisor-Based Kernel Protector v2.0.0\n");
+	sb_printf(LOG_LEVEL_ERROR, "     \n");
 }
 
 /*
@@ -586,7 +586,7 @@ static int sb_is_shutdown_timer_expired(void)
 
 	if (jiffies_to_msecs(value) >= SHUTDOWN_TIME_LIMIT_MS)
 	{
-		sb_printf(LOG_LEVEL_NONE, LOG_ERROR "VM[%d] Shutdown timer is expired\n",
+		sb_printf(LOG_LEVEL_ERROR, LOG_ERROR "VM[%d] Shutdown timer is expired\n",
 			smp_processor_id());
 		sb_error_log(ERROR_SHUTDOWN_TIME_OUT);
 		g_shutdown_jiffies = jiffies;
@@ -612,17 +612,17 @@ void sb_vm_resume_fail_callback(u64 error)
 
 	if (value & EFER_BIT_LME)
 	{
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM is in 64bit mode, %016lX, %016lX,"
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM is in 64bit mode, %016lX, %016lX,"
 			" %016lX\n", value, value2, value3);
 	}
 	else
 	{
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM is not in 64bit mode, %016lX, "
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM is not in 64bit mode, %016lX, "
 			"%016lX, %016lX\n", value, value2, value3);
 	}
 
 
-	sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM_RESUME fail %d\n", error);
+	sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM_RESUME fail %d\n", error);
 	sb_print_shadow_box_logo();
 
 	sb_error_log(ERROR_LAUNCH_FAIL);
@@ -786,7 +786,7 @@ void vm_dump_memory(u8* addr, int size)
 			strcat(buffer, temp);
 		}
 
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "%s\n", buffer);
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "%s\n", buffer);
 	}
 }
 
@@ -818,7 +818,7 @@ static void sb_alloc_vmcs_memory(void)
 			(g_io_bitmap_addrB[i] == NULL) || (g_msr_bitmap_addr[i] == NULL) ||
 			(g_virt_apic_page_addr[i] == NULL))
 		{
-			sb_printf(LOG_LEVEL_NONE, LOG_INFO "sb_alloc_vmcs_memory alloc fail\n");
+			sb_printf(LOG_LEVEL_ERROR, LOG_INFO "sb_alloc_vmcs_memory alloc fail\n");
 			return ;
 		}
 		else
@@ -1022,7 +1022,7 @@ static int sb_check_gdtr(int cpu_id)
 
 	if (gdtr.size >= 0x1000)
 	{
-		sb_printf(LOG_LEVEL_NONE, LOG_ERROR "VM [%d] GDT size is over, Org Addr"
+		sb_printf(LOG_LEVEL_ERROR, LOG_ERROR "VM [%d] GDT size is over, Org Addr"
 			" %016lX, Size %d, New Addr %016lX, Size %d\n",
 			cpu_id, g_gdtr_array[cpu_id].address, g_gdtr_array[cpu_id].size,
 			gdtr.address, gdtr.size);
@@ -1403,7 +1403,7 @@ void sb_printf(int level, char* format, ...)
  */
 void sb_error_log(int error_code)
 {
-	sb_printf(LOG_LEVEL_NONE, LOG_ERROR "errorcode=%d\n", error_code);
+	sb_printf(LOG_LEVEL_ERROR, LOG_ERROR "errorcode=%d\n", error_code);
 }
 
 /*
@@ -1452,13 +1452,13 @@ u64 vm_check_alloc_page_table(struct sb_pagetable* pagetable, int index)
 		value = (u64)sb_get_memory();
 		if (value == 0)
 		{
-			sb_printf(LOG_LEVEL_NONE, LOG_ERROR "vm_check_alloc_page fail \n");
+			sb_printf(LOG_LEVEL_ERROR, LOG_ERROR "vm_check_alloc_page fail \n");
 			sb_error_log(ERROR_MEMORY_ALLOC_FAIL);
 		}
 
 		memset((void*)value, 0, 0x1000);
 
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "vm_check_alloc_page log %lX, phy %lX \n",
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "vm_check_alloc_page log %lX, phy %lX \n",
 			value, virt_to_phys((void*)value));
 		value = virt_to_phys((void*)value);
 	}
@@ -1802,11 +1802,11 @@ u64 sb_sync_page_table(u64 addr)
 	{
 		vm_pml4->entry[pml4_index] = (u64)init_pdpte_pd;
 
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "===================INFO======================");
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "PML4 addr = %016lX sync\n", addr);
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "===================INFO======================");
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "===================INFO======================");
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "PML4 addr = %016lX sync\n", addr);
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "===================INFO======================");
 
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "PDPTE_PD has size flags or 0\n");
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "PDPTE_PD has size flags or 0\n");
 
 #if SHADOWBOX_USE_PAGE_DEBUG
 		while(1)
@@ -1856,9 +1856,9 @@ u64 sb_sync_page_table(u64 addr)
 	{
 		if (vm_pdpte_pd->entry[pdpte_pd_index] != (u64)init_pdept)
 		{
-			sb_printf(LOG_LEVEL_NONE, LOG_INFO "===================INFO======================");
-			sb_printf(LOG_LEVEL_NONE, LOG_INFO "PDEPT addr = %016lX sync\n", addr);
-			sb_printf(LOG_LEVEL_NONE, LOG_INFO "===================INFO======================");
+			sb_printf(LOG_LEVEL_ERROR, LOG_INFO "===================INFO======================");
+			sb_printf(LOG_LEVEL_ERROR, LOG_INFO "PDEPT addr = %016lX sync\n", addr);
+			sb_printf(LOG_LEVEL_ERROR, LOG_INFO "===================INFO======================");
 		}
 		else
 		{
@@ -1867,7 +1867,7 @@ u64 sb_sync_page_table(u64 addr)
 
 		vm_pdpte_pd->entry[pdpte_pd_index] = (u64)init_pdept;
 
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "PDEPT has size flags or 0\n");
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "PDEPT has size flags or 0\n");
 
 #if SHADOWBOX_USE_PAGE_DEBUG
 		while(1)
@@ -1917,9 +1917,9 @@ u64 sb_sync_page_table(u64 addr)
 	{
 		if (vm_pdept->entry[pdept_index] != (u64)init_pte)
 		{
-			sb_printf(LOG_LEVEL_NONE, LOG_INFO "===================INFO======================");
-			sb_printf(LOG_LEVEL_NONE, LOG_INFO "PDEPT addr = %016lX sync\n", addr);
-			sb_printf(LOG_LEVEL_NONE, LOG_INFO "===================INFO======================");
+			sb_printf(LOG_LEVEL_ERROR, LOG_INFO "===================INFO======================");
+			sb_printf(LOG_LEVEL_ERROR, LOG_INFO "PDEPT addr = %016lX sync\n", addr);
+			sb_printf(LOG_LEVEL_ERROR, LOG_INFO "===================INFO======================");
 		}
 		else
 		{
@@ -1928,7 +1928,7 @@ u64 sb_sync_page_table(u64 addr)
 
 		vm_pdept->entry[pdept_index] = (u64)init_pte;
 
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "PTE has size flags or 0\n");
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "PTE has size flags or 0\n");
 
 #if SHADOWBOX_USE_PAGE_DEBUG
 		while(1)
@@ -1990,11 +1990,11 @@ u64 sb_sync_page_table(u64 addr)
 #if SHADOWBOX_USE_PAGE_DEBUG
 	if (init_pte->entry[pte_index] != phy_entry.phy_addr[3])
 	{
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "===================INFO======================");
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "PTE index %d is not same. Addr %016lX "
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "===================INFO======================");
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "PTE index %d is not same. Addr %016lX "
 			"Physical %016lX %016lX\n", addr, pte_index, init_pte->entry[pte_index],
 			phy_entry.phy_addr[3]);
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "===================INFO======================");
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "===================INFO======================");
 
 		while(1)
 		{
@@ -2190,11 +2190,11 @@ void sb_hang(char* string)
 {
 	do
 	{
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "===============================\n");
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "===============================\n");
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "HANG %s\n", string);
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "===============================\n");
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "===============================\n");
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "===============================\n");
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "===============================\n");
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "HANG %s\n", string);
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "===============================\n");
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "===============================\n");
 
 		msleep(5000);
 	} while(sb_is_system_shutdowning() == 0);
@@ -2267,7 +2267,7 @@ static int sb_vm_thread(void* argument)
 	if ((host_register == NULL) || (guest_register == NULL) ||
 			(control_register == NULL))
 	{
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] Host or Guest or Control "
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] Host or Guest or Control "
 			"Register alloc fail\n", cpu_id);
 		g_thread_result |= -1;
 		return -1;
@@ -2392,7 +2392,7 @@ static int sb_vm_thread(void* argument)
 	{
 		atomic_set(&g_enter_flags, 0);
 		atomic_inc(&g_enter_count);
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] sb_init_vmx fail\n", cpu_id);
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] sb_init_vmx fail\n", cpu_id);
 		goto ERROR;
 	}
 
@@ -2410,10 +2410,10 @@ static int sb_vm_thread(void* argument)
 
 	if (result == -2)
 	{
-		sb_printf(LOG_LEVEL_NONE, LOG_ERROR "    [*] VM [%d] Launch Valid Fail\n",
+		sb_printf(LOG_LEVEL_ERROR, LOG_ERROR "    [*] VM [%d] Launch Valid Fail\n",
 			cpu_id);
 		sb_read_vmcs(VM_DATA_INST_ERROR, &vm_err_number);
-		sb_printf(LOG_LEVEL_NONE, LOG_ERROR "    [*] VM [%d] Error Number [%d]\n",
+		sb_printf(LOG_LEVEL_ERROR, LOG_ERROR "    [*] VM [%d] Error Number [%d]\n",
 			cpu_id, (int)vm_err_number);
 		sb_error_log(ERROR_LAUNCH_FAIL);
 
@@ -2421,7 +2421,7 @@ static int sb_vm_thread(void* argument)
 	}
 	else if (result == -1)
 	{
-		sb_printf(LOG_LEVEL_NONE, LOG_ERROR "    [*] VM [%d] Launch Invalid Fail\n",
+		sb_printf(LOG_LEVEL_ERROR, LOG_ERROR "    [*] VM [%d] Launch Invalid Fail\n",
 			cpu_id);
 		sb_error_log(ERROR_LAUNCH_FAIL);
 
@@ -2555,7 +2555,7 @@ static int sb_init_vmx(int cpu_id)
 	}
 	else
 	{
-		sb_printf(LOG_LEVEL_NONE, LOG_ERROR "    [*] VMXON Fail\n");
+		sb_printf(LOG_LEVEL_ERROR, LOG_ERROR "    [*] VMXON Fail\n");
 		sb_error_log(ERROR_LAUNCH_FAIL);
 		return -1;
 	}
@@ -2577,7 +2577,7 @@ static int sb_init_vmx(int cpu_id)
 	}
 	else
 	{
-		sb_printf(LOG_LEVEL_NONE, LOG_ERROR "    [*] Guest VCMS Clear Fail\n");
+		sb_printf(LOG_LEVEL_ERROR, LOG_ERROR "    [*] Guest VCMS Clear Fail\n");
 		sb_error_log(ERROR_LAUNCH_FAIL);
 		return -1;
 	}
@@ -2589,7 +2589,7 @@ static int sb_init_vmx(int cpu_id)
 	}
 	else
 	{
-		sb_printf(LOG_LEVEL_NONE, LOG_ERROR "    [*] Guest VCMS Load Fail\n");
+		sb_printf(LOG_LEVEL_ERROR, LOG_ERROR "    [*] Guest VCMS Load Fail\n");
 		sb_error_log(ERROR_LAUNCH_FAIL);
 		return -1;
 	}
@@ -2642,10 +2642,10 @@ void sb_dump_vm_exit_data(void)
 			total += g_dump_count[i];
 		}
 
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] ====== %ld =======\n", total);
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] ====== %ld =======\n", total);
 		for (i = 0 ; i < MAX_VM_EXIT_DUMP_COUNT / 16 ; i++)
 		{
-			sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] %ld %ld %ld %ld %ld %ld "
+			sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] %ld %ld %ld %ld %ld %ld "
 				"%ld % ld %ld %ld %ld %ld %ld %ld %ld %ld\n", i * 16,
 				g_dump_count[i * 16], g_dump_count[i * 16 + 1],
 				g_dump_count[i * 16 + 2], g_dump_count[i * 16 + 3],
@@ -2725,12 +2725,12 @@ void sb_vm_exit_callback(struct sb_vm_exit_guest_register* guest_context)
 			break;
 
 		case VM_EXIT_REASON_EXT_INTTERUPT:
-			sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] External Interrupt \n",
+			sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] External Interrupt \n",
 				cpu_id);
 			break;
 
 		case VM_EXIT_REASON_TRIPLE_FAULT:
-			sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] Triple fault \n", cpu_id);
+			sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] Triple fault \n", cpu_id);
 			sb_advance_vm_guest_rip();
 			break;
 
@@ -2747,7 +2747,7 @@ void sb_vm_exit_callback(struct sb_vm_exit_guest_register* guest_context)
 		case VM_EXIT_REASON_INT_WINDOW:
 		case VM_EXIT_REASON_NMI_WINDOW:
 		case VM_EXIT_REASON_TASK_SWITCH:
-			sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] VM_EXIT_REASON_IO_SMI, "
+			sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] VM_EXIT_REASON_IO_SMI, "
 				"INT, NMI\n", cpu_id);
 			sb_advance_vm_guest_rip();
 			break;
@@ -2759,12 +2759,12 @@ void sb_vm_exit_callback(struct sb_vm_exit_guest_register* guest_context)
 
 		/* For tboot interoperation*/
 		case VM_EXIT_REASON_GETSEC:
-			sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] GETSEC call \n", cpu_id);
+			sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] GETSEC call \n", cpu_id);
 			sb_advance_vm_guest_rip();
 			break;
 
 		case VM_EXIT_REASON_HLT:
-			sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] VM_EXIT_REASON_GETSEC, HLT\n",
+			sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] VM_EXIT_REASON_GETSEC, HLT\n",
 				cpu_id);
 			sb_advance_vm_guest_rip();
 			break;
@@ -2778,7 +2778,7 @@ void sb_vm_exit_callback(struct sb_vm_exit_guest_register* guest_context)
 		case VM_EXIT_REASON_RDPMC:
 		case VM_EXIT_REASON_RDTSC:
 		case VM_EXIT_REASON_RSM:
-			sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] VM_EXIT_REASON_INVLPG, "
+			sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] VM_EXIT_REASON_INVLPG, "
 				"RDPMC, RDTSC, RSM\n", cpu_id);
 			sb_advance_vm_guest_rip();
 			break;
@@ -2792,9 +2792,9 @@ void sb_vm_exit_callback(struct sb_vm_exit_guest_register* guest_context)
 		case VM_EXIT_REASON_VMWRITE:
 		case VM_EXIT_REASON_VMXON:
 		case VM_EXIT_REASON_VMXOFF:
-			sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] Virtualization Instruction "
+			sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] Virtualization Instruction "
 				"Detected\n", cpu_id);
-			sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] Skip VT instruction\n",
+			sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] Skip VT instruction\n",
 				cpu_id);
 			sb_advance_vm_guest_rip();
 			break;
@@ -2816,13 +2816,13 @@ void sb_vm_exit_callback(struct sb_vm_exit_guest_register* guest_context)
 
 		case VM_EXIT_REASON_IO_INST:
 		case VM_EXIT_REASON_RDMSR:
-			sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] VM_EXIT_REASON_IO_INST, "
+			sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] VM_EXIT_REASON_IO_INST, "
 				"RDMSR\n", cpu_id);
 			sb_advance_vm_guest_rip();
 			break;
 
 		case VM_EXIT_REASON_WRMSR:
-			sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] VM_EXIT_REASON_WRMSR\n",
+			sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] VM_EXIT_REASON_WRMSR\n",
 				cpu_id);
 			sb_vm_exit_callback_wrmsr(cpu_id);
 			break;
@@ -2830,14 +2830,14 @@ void sb_vm_exit_callback(struct sb_vm_exit_guest_register* guest_context)
 		case VM_EXIT_REASON_VM_ENTRY_FAILURE_INV_GUEST:
 		case VM_EXIT_REASON_VM_ENTRY_FAILURE_MSR_LOAD:
 		case VM_EXIT_REASON_MWAIT:
-			sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] VM_EXIT_REASON_VM_ENTRY_"
+			sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] VM_EXIT_REASON_VM_ENTRY_"
 				"FAILURE_INV_GUEST, MSR_LOAD\n", cpu_id);
 			sb_advance_vm_guest_rip();
 			break;
 
 		/* For hardware breakpoint interoperation */
 		case VM_EXIT_REASON_MONITOR_TRAP_FLAG:
-			sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] VM_EXIT_REASON_TRAP_FLAG\n",
+			sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] VM_EXIT_REASON_TRAP_FLAG\n",
 				cpu_id);
 			sb_advance_vm_guest_rip();
 			break;
@@ -2848,7 +2848,7 @@ void sb_vm_exit_callback(struct sb_vm_exit_guest_register* guest_context)
 		case VM_EXIT_REASON_TRP_BELOW_THRESHOLD:
 		case VM_EXIT_REASON_APIC_ACCESS:
 		case VM_EXIT_REASON_VIRTUALIZED_EOI:
-			sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] VM_EXIT_REASON_MONITOR, "
+			sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] VM_EXIT_REASON_MONITOR, "
 				"PAUSE, VM_ENTRY_FAILURE_MACHINE_CHECK,...\n", cpu_id);
 			sb_advance_vm_guest_rip();
 			break;
@@ -2869,7 +2869,7 @@ void sb_vm_exit_callback(struct sb_vm_exit_guest_register* guest_context)
 		case VM_EXIT_REASON_EPT_MISCONFIGURATION:
 		case VM_EXIT_REASON_INVEPT:
 		case VM_EXIT_REASON_RDTSCP:
-			sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] VM_EXIT_REASON_EPT_MISCONFIG\n",
+			sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] VM_EXIT_REASON_EPT_MISCONFIG\n",
 				cpu_id);
 			sb_advance_vm_guest_rip();
 			break;
@@ -2888,21 +2888,21 @@ void sb_vm_exit_callback(struct sb_vm_exit_guest_register* guest_context)
 		case VM_EXIT_REASON_RDSEED:
 		case VM_EXIT_REASON_XSAVES:
 		case VM_EXIT_REASON_XRSTORS:
-			sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] VM_EXIT_REASON_INVVPID\n",
+			sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] VM_EXIT_REASON_INVVPID\n",
 				cpu_id);
 			sb_advance_vm_guest_rip();
 			break;
 
 		default:
-			sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] VM_EXIT_REASON_DEFAULT\n",
+			sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] VM_EXIT_REASON_DEFAULT\n",
 				cpu_id);
-			sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] Exit Reason: %d, %016lX\n",
+			sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] Exit Reason: %d, %016lX\n",
 				cpu_id, (u32)exit_reason, exit_reason);
-			sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] Exit Qualification: %d, %016lX\n",
+			sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] Exit Qualification: %d, %016lX\n",
 				cpu_id, (u32)exit_qual, exit_qual);
-			sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] Guest Linear: %d, %016lX\n",
+			sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] Guest Linear: %d, %016lX\n",
 				cpu_id, (u32)guest_linear, guest_linear);
-			sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] Guest Physical: %d, %016lX\n",
+			sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] Guest Physical: %d, %016lX\n",
 				cpu_id, (u32)guest_physical, guest_physical);
 			sb_advance_vm_guest_rip();
 			break;
@@ -2930,10 +2930,10 @@ static void sb_vm_exit_callback_int(int cpu_id, unsigned long dr6, struct
 
 	if (type == VM_EXIT_INT_TYPE_NMI)
 	{
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] ===================WARNING======================\n",
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] ===================WARNING======================\n",
 			cpu_id);
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] NMI Interrupt Occured\n", cpu_id);
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] ===================WARNING======================\n",
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] NMI Interrupt Occured\n", cpu_id);
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] ===================WARNING======================\n",
 			cpu_id);
 	}
 	else if (vector != VM_INT_DEBUG_EXCEPTION)
@@ -2989,11 +2989,11 @@ static void sb_vm_exit_callback_init_signal(int cpu_id)
 	u64 status;
 
 	sb_read_vmcs(VM_GUEST_ACTIVITY_STATE, &status);
-	sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] ===================WARNING======================\n",
+	sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] ===================WARNING======================\n",
 		cpu_id);
-	sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] Activity Status %016lX\n", cpu_id,
+	sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] Activity Status %016lX\n", cpu_id,
 		status);
-	sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] ===================WARNING======================\n",
+	sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] ===================WARNING======================\n",
 		cpu_id);
 }
 
@@ -3005,11 +3005,11 @@ static void sb_vm_exit_callback_start_up_signal(int cpu_id)
 	u64 status;
 
 	sb_read_vmcs(VM_GUEST_ACTIVITY_STATE, &status);
-	sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] ===================WARNING======================\n",
+	sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] ===================WARNING======================\n",
 		cpu_id);
-	sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] Change Activity Status to Active, %016lX\n",
+	sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] Change Activity Status to Active, %016lX\n",
 		cpu_id, status);
-	sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] ===================WARNING======================\n",
+	sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] ===================WARNING======================\n",
 		cpu_id);
 }
 
@@ -3085,10 +3085,10 @@ static void sb_vm_exit_callback_access_cr(int cpu_id, struct sb_vm_exit_guest_re
 	}
 	else
 	{
-		sb_printf(LOG_LEVEL_NONE, LOG_ERROR "VM [%d] VM_EXIT_QUAL_CTRL_REG is "
+		sb_printf(LOG_LEVEL_ERROR, LOG_ERROR "VM [%d] VM_EXIT_QUAL_CTRL_REG is "
 			"not move from reg_value: %d\n", cpu_id,
 			(int)VM_EXIT_QUAL_CTRL_REG_ACC_GET_ACC_TYPE(exit_qual));
-		sb_printf(LOG_LEVEL_NONE, LOG_ERROR "VM [%d] VM_EXIT_QUAL_CTRL_REG is "
+		sb_printf(LOG_LEVEL_ERROR, LOG_ERROR "VM [%d] VM_EXIT_QUAL_CTRL_REG is "
 			"not move from reg_value\n", cpu_id);
 	}
 
@@ -3482,7 +3482,7 @@ static int sb_system_reboot_notify(struct notifier_block *nb, unsigned long code
 	sb_vm_call(VM_SERVICE_SHUTDOWN, NULL);
 
 	cpu_count = num_online_cpus();
-	sb_printf(LOG_LEVEL_NONE, LOG_INFO "Shutdown start, cpu count %d\n", cpu_count);
+	sb_printf(LOG_LEVEL_ERROR, LOG_INFO "Shutdown start, cpu count %d\n", cpu_count);
 
 	while(1)
 	{
@@ -3554,7 +3554,7 @@ static void sb_remove_int_exception_from_vm(int vector)
  */
 static void sb_vm_exit_callback_wrmsr(int cpu_id)
 {
-	sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] sb_vm_exit_callback_wrmsr\n", cpu_id);
+	sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] sb_vm_exit_callback_wrmsr\n", cpu_id);
 	sb_insert_exception_to_vm();
 }
 
@@ -3566,11 +3566,11 @@ static void sb_vm_exit_callback_gdtr_idtr(int cpu_id, struct sb_vm_exit_guest_re
 {
 	if (sb_is_system_shutdowning() == 0)
 	{
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] ===================WARNING======================\n",
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] ===================WARNING======================\n",
 			cpu_id);
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] sb_vm_exit_callback_gdtr_idtr\n",
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] sb_vm_exit_callback_gdtr_idtr\n",
 			cpu_id);
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] ===================WARNING======================\n",
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] ===================WARNING======================\n",
 			cpu_id);
 
 		sb_advance_vm_guest_rip();
@@ -3611,9 +3611,9 @@ static void sb_vm_exit_callback_ldtr_tr(int cpu_id, struct sb_vm_exit_guest_regi
 	{
 		// SLDT
 		case VM_INST_INFO_SLDT:
-			sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] SLDT is not allowed\n",
+			sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] SLDT is not allowed\n",
 				cpu_id);
-			sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] sb_vm_exit_callback_ldtr_tr"
+			sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] sb_vm_exit_callback_ldtr_tr"
 				" SLDT\n", cpu_id);
 			value = sb_get_ldtr();
 			if (memory == 1)
@@ -3629,9 +3629,9 @@ static void sb_vm_exit_callback_ldtr_tr(int cpu_id, struct sb_vm_exit_guest_regi
 
 		// STR
 		case VM_INST_INFO_STR:
-			sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] STR is not allowed\n",
+			sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] STR is not allowed\n",
 				cpu_id);
-			sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] sb_vm_exit_callback_ldtr_tr "
+			sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] sb_vm_exit_callback_ldtr_tr "
 				"STR\n", cpu_id);
 			sb_insert_exception_to_vm();
 			break;
@@ -3640,9 +3640,9 @@ static void sb_vm_exit_callback_ldtr_tr(int cpu_id, struct sb_vm_exit_guest_regi
 		case VM_INST_INFO_LLDT:
 			if (memory == 1)
 			{
-				sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] Memory, value[%016lX]\n",
+				sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] Memory, value[%016lX]\n",
 					cpu_id, dest_addr);
-				sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] sb_vm_exit_callback_ldtr_tr "
+				sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] sb_vm_exit_callback_ldtr_tr "
 					"LLDT 1\n", cpu_id);
 				sb_insert_exception_to_vm();
 
@@ -3657,9 +3657,9 @@ static void sb_vm_exit_callback_ldtr_tr(int cpu_id, struct sb_vm_exit_guest_regi
 				}
 				else
 				{
-					sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] LLDT Value is not 0, "
+					sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] LLDT Value is not 0, "
 						"%016lX\n", cpu_id, dest_addr);
-					sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] sb_vm_exit_callback_"
+					sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] sb_vm_exit_callback_"
 						"ldtr_tr LLDT 2\n", cpu_id);
 					sb_insert_exception_to_vm();
 				}
@@ -3668,9 +3668,9 @@ static void sb_vm_exit_callback_ldtr_tr(int cpu_id, struct sb_vm_exit_guest_regi
 
 		// LTR
 		case VM_INST_INFO_LTR:
-			sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] LTR is not allowed\n",
+			sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] LTR is not allowed\n",
 				cpu_id);
-			sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] sb_vm_exit_callback_ldtr_tr "
+			sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] sb_vm_exit_callback_ldtr_tr "
 				"LTR\n", cpu_id);
 			sb_insert_exception_to_vm();
 			break;
@@ -3688,7 +3688,7 @@ static void sb_vm_exit_callback_ept_violation(int cpu_id, struct sb_vm_exit_gues
 	u64 log_addr;
 	u64 cr0;
 
-	sb_printf(LOG_LEVEL_NONE, LOG_ERROR "VM [%d] Memory attack is detected, "
+	sb_printf(LOG_LEVEL_ERROR, LOG_ERROR "VM [%d] Memory attack is detected, "
 		"guest linear=%016lX guest physical=%016X virt_to_phys=%016lX\n",
 		cpu_id, guest_linear, guest_physical, virt_to_phys((void*)guest_linear));
 
@@ -3698,7 +3698,7 @@ static void sb_vm_exit_callback_ept_violation(int cpu_id, struct sb_vm_exit_gues
 		if (sb_is_workaround_addr(guest_physical) == 1)
 		{
 			sb_set_ept_all_access_page(guest_physical);
-			sb_printf(LOG_LEVEL_NONE,
+			sb_printf(LOG_LEVEL_ERROR,
 				LOG_ERROR "VM [%d] === %016lX is Workaround Address ===\n\n",
 				cpu_id, guest_physical);
 		}
@@ -3763,7 +3763,7 @@ static void sb_vm_exit_callback_pre_timer_expired(int cpu_id)
 		/* Check gdtr. */
 		if (sb_check_gdtr(cpu_id) == -1)
 		{
-			sb_printf(LOG_LEVEL_NONE, LOG_ERROR "VM [%d] GDTR or IDTR attack is detected\n", cpu_id);
+			sb_printf(LOG_LEVEL_ERROR, LOG_ERROR "VM [%d] GDTR or IDTR attack is detected\n", cpu_id);
 			sb_error_log(ERROR_KERNEL_MODIFICATION);
 		}
 
@@ -4145,7 +4145,7 @@ static void sb_setup_vm_control_register(struct sb_vm_control_register*
 	if ((sb_rdmsr(MSR_IA32_VMX_PROCBASED_CTLS2) >> 32) &
 		VM_BIT_VM_SEC_PROC_CTRL_ENABLE_VPID)
 	{
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "VM [%d] Support Enable VPID\n",
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] Support Enable VPID\n",
 			cpu_id);
 		sec_flags |= VM_BIT_VM_SEC_PROC_CTRL_ENABLE_VPID;
 	}
@@ -4530,7 +4530,7 @@ static void sb_print_vm_result(const char* string, int result)
 	}
 	else
 	{
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "%s Fail\n", string);
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "%s Fail\n", string);
 	}
 }
 
@@ -4822,7 +4822,7 @@ int sb_is_addr_in_ro_area(void* addr)
 		}
 	}
 
-	//sb_printf(LOG_LEVEL_NONE, LOG_ERROR "%p is not in code area\n", addr);
+	//sb_printf(LOG_LEVEL_ERROR, LOG_ERROR "%p is not in code area\n", addr);
 
 	return 0;
 }
@@ -4872,47 +4872,47 @@ static void sb_get_function_pointers(void)
 	g_root_file_ptr = filp_open("/", O_RDONLY | O_DIRECTORY, 0);
 	if (IS_ERR(g_root_file_ptr))
 	{
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "/ Open VFS Object Fail\n");
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "/ Open VFS Object Fail\n");
 	}
 
 	g_proc_file_ptr = filp_open("/proc", O_RDONLY | O_DIRECTORY, 0);
 	if (IS_ERR(g_proc_file_ptr))
 	{
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "/proc Open VFS Object Fail\n");
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "/proc Open VFS Object Fail\n");
 	}
 
 	g_tcp_file_ptr = filp_open("/proc/net/tcp", O_RDONLY, 0);
 	if (IS_ERR(g_tcp_file_ptr))
 	{
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "/proc/net/tcp Open VFS Object Fail\n");
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "/proc/net/tcp Open VFS Object Fail\n");
 	}
 
 	g_udp_file_ptr = filp_open("/proc/net/udp", O_RDONLY, 0);
 	if (IS_ERR(g_udp_file_ptr))
 	{
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "/proc/net/udp Open VFS Object Fail\n");
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "/proc/net/udp Open VFS Object Fail\n");
 	}
 
 	g_tcp6_file_ptr = filp_open("/proc/net/tcp6", O_RDONLY, 0);
 	if (IS_ERR(g_tcp6_file_ptr))
 	{
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "/proc/net/tcp6 Open VFS Object Fail\n");
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "/proc/net/tcp6 Open VFS Object Fail\n");
 	}
 
 	g_udp6_file_ptr = filp_open("/proc/net/udp6", O_RDONLY, 0);
 	if (IS_ERR(g_udp6_file_ptr))
 	{
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "/proc/net/udp6 Open VFS Object Fail\n");
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "/proc/net/udp6 Open VFS Object Fail\n");
 	}
 
 	if (sock_create(AF_INET, SOCK_DGRAM, IPPROTO_UDP, &g_udp_sock) < 0)
 	{
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "UDP Socket Object Open Fail\n");
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "UDP Socket Object Open Fail\n");
 	}
 
 	if (sock_create(AF_INET, SOCK_STREAM, IPPROTO_TCP, &g_tcp_sock) < 0)
 	{
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "TCP Socket Object Open Fail\n");
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "TCP Socket Object Open Fail\n");
 	}
 }
 

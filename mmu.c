@@ -390,7 +390,7 @@ int sb_alloc_ept_pages(void)
 		(g_ept_info.pdept_page_addr_array == NULL) ||
 		(g_ept_info.pte_page_addr_array == NULL))
 	{
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO " sb_alloc_ept_pages alloc fail\n");
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO " sb_alloc_ept_pages alloc fail\n");
 		return -1;
 	}
 
@@ -399,7 +399,7 @@ int sb_alloc_ept_pages(void)
 		g_ept_info.pml4_page_addr_array[i] = (u64)kmalloc(0x1000,GFP_KERNEL);
 		if (g_ept_info.pml4_page_addr_array[i] == 0)
 		{
-			sb_printf(LOG_LEVEL_NONE, LOG_INFO " sb_alloc_ept_pages alloc fail\n");
+			sb_printf(LOG_LEVEL_ERROR, LOG_INFO " sb_alloc_ept_pages alloc fail\n");
 			return -1;
 		}
 	}
@@ -410,7 +410,7 @@ int sb_alloc_ept_pages(void)
 
 		if (g_ept_info.pdpte_pd_page_addr_array[i] == 0)
 		{
-			sb_printf(LOG_LEVEL_NONE, LOG_INFO " sb_alloc_ept_pages alloc fail\n");
+			sb_printf(LOG_LEVEL_ERROR, LOG_INFO " sb_alloc_ept_pages alloc fail\n");
 			return -1;
 		}
 	}
@@ -421,7 +421,7 @@ int sb_alloc_ept_pages(void)
 
 		if (g_ept_info.pdept_page_addr_array[i] == 0)
 		{
-			sb_printf(LOG_LEVEL_NONE, LOG_INFO " sb_alloc_ept_pages alloc fail\n");
+			sb_printf(LOG_LEVEL_ERROR, LOG_INFO " sb_alloc_ept_pages alloc fail\n");
 			return -1;
 		}
 	}
@@ -432,7 +432,7 @@ int sb_alloc_ept_pages(void)
 
 		if (g_ept_info.pte_page_addr_array[i] == 0)
 		{
-			sb_printf(LOG_LEVEL_NONE, LOG_INFO " sb_alloc_ept_pages alloc fail\n");
+			sb_printf(LOG_LEVEL_ERROR, LOG_INFO " sb_alloc_ept_pages alloc fail\n");
 			return -1;
 		}
 	}
@@ -507,7 +507,7 @@ static void sb_setup_ept_system_ram_range(void)
 	func = (my_walk_system_ram_range)sb_get_symbol_address("walk_system_ram_range");
 	if (func == NULL)
 	{
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "walk_system_ram_range fail\n");
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "walk_system_ram_range fail\n");
 		return ;
 	}
 
@@ -546,7 +546,7 @@ u64 sb_get_max_ram_size(void)
 	func = (my_walk_system_ram_range)sb_get_symbol_address("walk_system_ram_range");
 	if (func == NULL)
 	{
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "walk_system_ram_range fail\n");
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "walk_system_ram_range fail\n");
 		return totalram_pages * 2 * VAL_4KB;
 	}
 

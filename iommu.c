@@ -585,7 +585,7 @@ int sb_alloc_iommu_pages(void)
 		(g_iommu_info.pdept_page_addr_array == 0) ||
 		(g_iommu_info.pte_page_addr_array == 0))
 	{
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "sb_alloc_iommu_pages alloc fail\n");
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "sb_alloc_iommu_pages alloc fail\n");
 		return -1;
 	}
 
@@ -594,7 +594,7 @@ int sb_alloc_iommu_pages(void)
 		g_iommu_info.pml4_page_addr_array[i] = (u64)kmalloc(0x1000,GFP_KERNEL);
 		if (g_iommu_info.pml4_page_addr_array[i] == 0)
 		{
-			sb_printf(LOG_LEVEL_NONE, LOG_INFO " sb_alloc_iommu_pages alloc fail\n");
+			sb_printf(LOG_LEVEL_ERROR, LOG_INFO " sb_alloc_iommu_pages alloc fail\n");
 			return -1;
 		}
 	}
@@ -604,7 +604,7 @@ int sb_alloc_iommu_pages(void)
 		g_iommu_info.pdpte_pd_page_addr_array[i] = (u64)kmalloc(0x1000,GFP_KERNEL);
 		if (g_iommu_info.pdpte_pd_page_addr_array[i] == 0)
 		{
-			sb_printf(LOG_LEVEL_NONE, LOG_INFO " sb_alloc_iommu_pages alloc fail\n");
+			sb_printf(LOG_LEVEL_ERROR, LOG_INFO " sb_alloc_iommu_pages alloc fail\n");
 			return -1;
 		}
 	}
@@ -614,7 +614,7 @@ int sb_alloc_iommu_pages(void)
 		g_iommu_info.pdept_page_addr_array[i] = (u64)kmalloc(0x1000,GFP_KERNEL);
 		if (g_iommu_info.pdept_page_addr_array[i] == 0)
 		{
-			sb_printf(LOG_LEVEL_NONE, LOG_INFO " sb_alloc_iommu_pages alloc fail\n");
+			sb_printf(LOG_LEVEL_ERROR, LOG_INFO " sb_alloc_iommu_pages alloc fail\n");
 			return -1;
 		}
 	}
@@ -624,7 +624,7 @@ int sb_alloc_iommu_pages(void)
 		g_iommu_info.pte_page_addr_array[i] = (u64)kmalloc(0x1000,GFP_KERNEL);
 		if (g_iommu_info.pte_page_addr_array[i] == 0)
 		{
-			sb_printf(LOG_LEVEL_NONE, LOG_INFO " sb_alloc_iommu_pages alloc fail\n");
+			sb_printf(LOG_LEVEL_ERROR, LOG_INFO " sb_alloc_iommu_pages alloc fail\n");
 			return -1;
 		}
 	}
@@ -636,7 +636,7 @@ int sb_alloc_iommu_pages(void)
 	context_entry_table = (struct context_entry*) kmalloc(0x1000, GFP_KERNEL);
 	if ((root_entry_table == NULL) || (context_entry_table == NULL))
 	{
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO " sb_alloc_iommu_pages alloc fail\n");
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO " sb_alloc_iommu_pages alloc fail\n");
 		return -1;
 	}
 
@@ -849,8 +849,8 @@ void sb_lock_iommu(void)
 		(struct acpi_table_header **)&dmar_ptr, &dmar_table_size);
 	if (!ACPI_SUCCESS(result) || (dmar_ptr == NULL))
 	{
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "    [*] WARNING: DMAR find error.\n");
-		sb_printf(LOG_LEVEL_NONE, LOG_INFO "    [*] WARNING: IOMMU is disabled.\n");
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "    [*] WARNING: DMAR find error.\n");
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "    [*] WARNING: IOMMU is disabled.\n");
 		return ;
 	}
 

@@ -63,7 +63,7 @@
 
 /* Log level. */
 #define LOG_LEVEL						(LOG_LEVEL_NORMAL)
-#define LOG_LEVEL_NONE					0
+#define LOG_LEVEL_ERROR					0
 #define LOG_LEVEL_NORMAL				1
 #define LOG_LEVEL_DEBUG					2
 #define LOG_LEVEL_DETAIL				3
