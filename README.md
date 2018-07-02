@@ -245,3 +245,7 @@ Shadow-box protects kernel code, read-only data, system table, privilege registe
 Shadow-box has some known issues below.
  * Too many logs in secure world stops the system intermittently.
    * If you want to log massive information, make FIFO like a kfifo and connect normal world and secure world
+
+# Acknowledgments
+Shadow-box has been used to protect the kernel of Gooroom platform which is an open source project. This work was supported by Institute for Information & communications Technology Promotion (IITP) grant funded by the Korea government (MSIP) (No.R0236-15-1006, Open Source Software Promotion).  
+
