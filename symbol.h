@@ -9,6 +9,8 @@ struct sb_symbol_table_struct g_symbol_table_array[] =
 	{
 		{
 			{"_text", 0xffffffff81000000},
+			{"mce_timer_delete_all", 0xffffffff81043f90},
+			{"mce_cpu_restart", 0xffffffff81045fa0},
 			{"walk_system_ram_range", 0xffffffff81086ef0},
 			{"wake_up_new_task", 0xffffffff810acd70},
 			{"free_module", 0xffffffff811077b0},
@@ -27,6 +29,7 @@ struct sb_symbol_table_struct g_symbol_table_array[] =
 			{"__end_rodata", 0xffffffff81dca000},
 			{"tasklist_lock", 0xffffffff81e09080},
 			{"init_level4_pgt", 0xffffffff81e0a000},
+			{"check_interval", 0xffffffff81e28be8},
 			{"modules", 0xffffffff81e59c90},
 			{"init_mm", 0xffffffff81e6eb00},
 			{"logbuf_lock", 0xffffffff8213f150},

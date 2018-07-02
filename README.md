@@ -14,6 +14,7 @@ Shadow-box v2 (for ARM) is a next generation of Shadow-box v1 (for x86). If you 
 
 Major changes are as followed:
  - Page Table Isolation (PTI) support
+ - Sleep mode of Intel Integrated Graphics support
 
 # 1.1. Presentations and Papers
 Shadow-box is a lightweight and practical kernel protector, and it was introduced at security conferences below.

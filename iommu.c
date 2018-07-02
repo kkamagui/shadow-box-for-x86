@@ -22,6 +22,7 @@
 #include <linux/reboot.h>
 #include <linux/smp.h>
 #include <linux/version.h>
+#include <asm/tlbflush.h>
 #include "shadow_box.h"
 #include "mmu.h"
 #include "iommu.h"
@@ -34,7 +35,9 @@ struct sb_iommu_info g_iommu_info = {0, };
 u32 g_entry_level = ENTRY_4LEVEL_PTE;
 
 static void sb_wait_dmar_operation(u8* reg_remap_addr, int flag);
-
+static int sb_need_intel_i915_workaround(void);
+static int sb_is_intel_graphics_in(struct acpi_dmar_hardware_unit* drhd);
+ 
 #if SHADOWBOX_USE_IOMMU_DEBUG
 /*
  * Parse PTE.
@@ -53,14 +56,14 @@ static void sb_parse_iommu_pte(u64 pte_addr)
 		remap_addr = (u8*)phys_to_virt(pte_addr & MASK_PAGEADDR);
 	}
 
-	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "                    [*] PTE value\n");
+	sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "                    [*] PTE value\n");
 
 	for (i = 0 ; i < IOMMU_PAGE_ENT_COUNT ; i++)
 	{
 		entry = *(u64*)(remap_addr + i * 8);
 		if (entry != 0)
 		{
-			sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "                    [*] %d "
+			sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "                    [*] %d "
 				"Addr %016lX\n", i, entry);
 		}
 	}
@@ -88,14 +91,14 @@ static void sb_parse_iommu_pde(u64 pte_addr)
 		remap_addr = (u8*)phys_to_virt(pte_addr & MASK_PAGEADDR);
 	}
 
-	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "                [*] PDE value\n");
+	sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "                [*] PDE value\n");
 
 	for (i = 0 ; i < IOMMU_PAGE_ENT_COUNT ; i++)
 	{
 		entry = *(u64*)(remap_addr + i * 8);
 		if (entry != 0)
 		{
-			sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "                [*] %d Addr "
+			sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "                [*] %d Addr "
 				"%016lX\n", i, entry);
 
 			if ((entry & PS_BIT) == 0)
@@ -131,19 +134,59 @@ static void sb_parse_iommu_pdpepd(u64 pte_addr)
 		remap_addr = (u8*)phys_to_virt(pte_addr & MASK_PAGEADDR);
 	}
 
-	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "            [*] PDPEPD value\n");
+	sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "            [*] PDPEPD value\n");
 
 	for (i = 0 ; i < IOMMU_PAGE_ENT_COUNT ; i++)
 	{
 		entry = *(u64*)(remap_addr + i * 8);
 		if (entry != 0)
 		{
-			sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "            [*] %d Addr "
+			sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "            [*] %d Addr "
 				"%016lX\n", i, (u64)entry);
 
 			if ((entry & PS_BIT) == 0)
 			{
 				sb_parse_iommu_pde(entry);
+			}
+		}
+	}
+
+	if (ioremap == true)
+	{
+		iounmap(remap_addr);
+	}
+}
+
+/*
+ * Parse PML4.
+ */
+static void sb_parse_iommu_pml4(u64 pte_addr)
+{
+	u8* remap_addr;
+	u64 entry;
+	int i;
+	bool ioremap = true;
+
+	remap_addr = (u8*)ioremap_nocache(pte_addr & MASK_PAGEADDR, VTD_PAGE_SIZE);
+	if (remap_addr == NULL)
+	{
+		ioremap = false;
+		remap_addr = (u8*)phys_to_virt(pte_addr & MASK_PAGEADDR);
+	}
+
+	sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "            [*] PML4 value\n");
+
+	for (i = 0 ; i < IOMMU_PAGE_ENT_COUNT ; i++)
+	{
+		entry = *(u64*)(remap_addr + i * 8);
+		if (entry != 0)
+		{
+			sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "            [*] %d Addr "
+				"%016lX\n", i, (u64)entry);
+
+			if ((entry & PS_BIT) == 0)
+			{
+				sb_parse_iommu_pdpepd(entry);
 			}
 		}
 	}
@@ -166,7 +209,7 @@ static void sb_parse_iommu_context_entry(u64 context_addr)
 	remap_addr = (u8*)phys_to_virt(context_addr & MASK_PAGEADDR);
 	if (remap_addr == NULL)
 	{
-		sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "IO Remap Error %016lX\n",
+		sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "IO Remap Error %016lX\n",
 			(u64)context_addr);
 		return ;
 	}
@@ -177,7 +220,7 @@ static void sb_parse_iommu_context_entry(u64 context_addr)
 				struct context_entry));
 		if (context == NULL)
 		{
-			sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "        [*] %d Entry is null\n",
+			sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "        [*] %d Entry is null\n",
 				i);
 		}
 		else
@@ -187,12 +230,12 @@ static void sb_parse_iommu_context_entry(u64 context_addr)
 				continue;
 			}
 
-			sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "        [*] %d Addr %016lX\n",
+			sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "        [*] %d Addr %016lX\n",
 				i, (u64)context->lo);
-			sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "        [*] %d Addr %016lX\n",
+			sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "        [*] %d Addr %016lX\n",
 				i, (u64)context->hi);
 
-			sb_parse_iommu_pdpepd(context->lo);
+			sb_parse_iommu_pml4(context->lo);
 		}
 	}
 }
@@ -207,11 +250,11 @@ static void sb_parse_iommu_root_entry(u64 root_table_addr)
 	u8* remap_addr;
 	int i;
 
-	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "Show Root Entry\n");
-	remap_addr = (u8*)phys_to_virt(root_table_addr);
+	sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "Show Root Entry\n");
+	remap_addr = (u8*)phys_to_virt(root_table_addr & MASK_PAGEADDR);
 	if (remap_addr == NULL)
 	{
-		sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "IO Remap Error %016lX\n",
+		sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "IO Remap Error %016lX\n",
 			root_table_addr);
 		return ;
 	}
@@ -222,7 +265,7 @@ static void sb_parse_iommu_root_entry(u64 root_table_addr)
 		root = (struct root_entry*)(remap_addr + i * sizeof(struct root_entry));
 		if (root == NULL)
 		{
-			sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] %d Entry is null\n",
+			sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "    [*] %d Entry is null\n",
 				i);
 		}
 		else
@@ -232,11 +275,11 @@ static void sb_parse_iommu_root_entry(u64 root_table_addr)
 				continue;
 			}
 
-			sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] %d Addr %016lX\n", i,
+			sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "    [*] %d Addr %016lX\n", i,
 				(u64)root->val);
-			sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] %d Addr %016lX\n", i,
+			sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "    [*] %d Addr %016lX\n", i,
 				(u64)root->rsvd1);
-			sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "        [*] Show Context Entry\n");
+			sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "        [*] Show Context Entry\n");
 
 			sb_parse_iommu_context_entry(root->val);
 		}
@@ -283,6 +326,9 @@ static void sb_enable_iommu(u8* reg_remap_addr)
 	preempt_disable();
 
 	flags = readl(reg_remap_addr + DMAR_GSTS_REG);
+	writel(flags | DMA_GCMD_QIE, reg_remap_addr + DMAR_GCMD_REG);
+	sb_wait_dmar_operation(reg_remap_addr + DMAR_GSTS_REG, DMA_GSTS_QIES);
+
 	writel(flags | DMA_GCMD_TE, reg_remap_addr + DMAR_GCMD_REG);
 	sb_wait_dmar_operation(reg_remap_addr + DMAR_GSTS_REG, DMA_GSTS_TES);
 
@@ -304,8 +350,10 @@ void sb_disable_iommu(u8* reg_remap_addr)
 
 	flags = readl(reg_remap_addr + DMAR_GSTS_REG);
 	writel(flags & ~DMA_GCMD_TE, reg_remap_addr + DMAR_GCMD_REG);
-	sb_wait_dmar_operation(reg_remap_addr + DMAR_GSTS_REG, DMA_GSTS_TES);
 
+	/* Just wait until timeout. */
+	sb_wait_dmar_operation(reg_remap_addr + DMAR_GSTS_REG, 0);
+ 
 	local_irq_restore(irqs);
 	preempt_enable();
 }
@@ -812,20 +860,128 @@ void sb_protect_iommu_pages(void)
 /*
  * Start IOMMU.
  */
-static void start_iommu(u8* reg_remap_addr)
+static void start_iommu(u8* reg_remap_addr, int skip)
 {
+	u64 extend_cap = 0;
+ 
 	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "IOMMU Start\n");
 
 	sb_setup_root_table_entry();
 	sb_setup_context_table_entry();
 
-	sb_set_iommu_root_entry_register(reg_remap_addr,
-		(u64)virt_to_phys(g_iommu_info.root_entry_table_addr));
-	sb_enable_iommu(reg_remap_addr);
+	flush_cache_all();
 
-	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] IOMMU STATUS = %08X\n",
-		readl(reg_remap_addr + DMAR_GSTS_REG));
+	extend_cap = dmar_readq(reg_remap_addr + DMAR_ECAP_REG);
+	if (ecap_ecs(extend_cap))
+	{
+		sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] Extended Context Supported\n");
+	}
+
+	if (skip == 0)
+	{
+		sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] Root entry %016lX\n",
+			g_iommu_info.root_entry_table_addr);
+		sb_set_iommu_root_entry_register(reg_remap_addr,
+			(u64)virt_to_phys(g_iommu_info.root_entry_table_addr));
+
+		sb_enable_iommu(reg_remap_addr);
+		sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] IOMMU STATUS = %08X\n",
+			readl(reg_remap_addr + DMAR_GSTS_REG));
+	}
+	else
+	{
+		sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] Root entry is skipped\n");
+
+		sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] IOMMU STATUS = %08X\n",
+			readl(reg_remap_addr + DMAR_GSTS_REG));
+	}
 }
+
+/*
+ * Workaround for i915 driver.
+ * To support IOMMU, GFX DRHD is skipped.
+ */
+static int sb_need_intel_i915_workaround(void)
+{
+	struct module *mod;
+	struct list_head *pos, *node;
+	unsigned long mod_head_node;
+
+	node = &THIS_MODULE->list;
+	mod_head_node = sb_get_symbol_address("modules");
+
+	list_for_each(pos, node)
+	{
+		if(mod_head_node == (unsigned long)pos)
+			break;
+
+		mod = container_of(pos, struct module, list);
+		if (strcmp(mod->name, "i915") == 0)
+		{
+			sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] i915 driver is detected.\n");
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+/*
+ * Check if Intel integrated graphics is in DRHD.
+ */
+static int sb_is_intel_graphics_in(struct acpi_dmar_hardware_unit* drhd)
+{
+	struct acpi_dmar_device_scope* device_scope;
+	struct acpi_dmar_pci_path* pci_path;
+	u64 start_device_scope;
+	u64 start_pci_path;
+	int device_count = 0;
+	int path_count = 0;
+	int is_bus_device_function_match = 0;
+
+	/* Parse device scope structure. */
+	for (start_device_scope = sizeof(struct acpi_dmar_hardware_unit) ;
+		 start_device_scope < drhd->header.length ; )
+	{
+		device_scope = (struct acpi_dmar_device_scope*)(start_device_scope + (u64)drhd);
+
+		sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] Device Scope %d\n", device_count);
+		sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "        [*] Type %d\n", device_scope->entry_type);
+		sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "        [*] Length %d, PCI path %d\n", device_scope->length, sizeof(struct acpi_dmar_pci_path));
+		sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "        [*] Enum ID %d\n", device_scope->enumeration_id);
+		sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "        [*] Bus %d\n", device_scope->bus);
+
+		for (start_pci_path = sizeof(struct acpi_dmar_device_scope) ;
+			 start_pci_path < device_scope->length ; )
+		{
+			pci_path = (struct acpi_dmar_pci_path*)(start_pci_path + (u64)device_scope);
+			sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "        [*] PCI Path\n");
+			sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "            [*] Device %d, Function %d\n", pci_path->device, pci_path->function);
+
+			start_pci_path += sizeof(struct acpi_dmar_pci_path);
+			path_count++;
+
+			if ((device_scope->entry_type == ACPI_DMAR_SCOPE_TYPE_ENDPOINT) &&
+				(device_scope->bus == 0) && (pci_path->device == 2) &&
+				(pci_path->function == 0))
+			{
+				is_bus_device_function_match = 1;
+			}
+		}
+
+		start_device_scope += device_scope->length;
+		device_count++;
+	}
+
+	if ((device_count == 1) && (is_bus_device_function_match == 1))
+	{
+		sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "    [*] Intel Integrated Graphics is detected\n");
+		return 1;
+	}
+
+	return 0;
+}
+
 
 /*
  * Lock IOMMU area.
@@ -834,15 +990,18 @@ void sb_lock_iommu(void)
 {
 	struct acpi_table_dmar* dmar_ptr;
 	struct acpi_dmar_header* dmar_header;
-	struct acpi_dmar_hardware_unit* hardware_unit;
+	struct acpi_dmar_hardware_unit* drhd;
 	u8* remap_addr;
 	u64 start;
 	u64 root_table_addr = 0;
 	acpi_size dmar_table_size = 0;
 	acpi_status result = AE_OK;
-	int j;
+	int i;
+	int need_i915_workaround = 0;
 
 	sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "Lock IOMMU\n");
+
+	need_i915_workaround = sb_need_intel_i915_workaround();
 
 	/* Read ACPI. */
 	result = acpi_get_table_with_size(ACPI_SIG_DMAR, 0,
@@ -873,22 +1032,22 @@ void sb_lock_iommu(void)
 	for (start = sizeof(struct acpi_table_dmar) ; start < dmar_ptr->header.length ; )
 	{
 		dmar_header = (struct acpi_dmar_header*) (start + (u64)dmar_ptr);
-		sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] Type: %d\n",
+		sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] DMAR Type: %d\n",
 			dmar_header->type);
-		sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] Length: %d\n",
+		sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] DMAR Length: %d\n",
 			dmar_header->length);
 
 		if (dmar_header->type == ACPI_DMAR_TYPE_HARDWARE_UNIT)
 		{
-			hardware_unit = (struct acpi_dmar_hardware_unit*)dmar_header;
+			drhd = (struct acpi_dmar_hardware_unit*)dmar_header;
 			sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] Flag: %X\n",
-				hardware_unit->flags);
+				drhd->flags);
 			sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] Segment: %X\n",
-				hardware_unit->segment);
+				drhd->segment);
 			sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] Address: %016lX\n",
-				(u64)hardware_unit->address);
+				(u64)drhd->address);
 
-			remap_addr = (u8*)ioremap_nocache((resource_size_t)(hardware_unit->address),
+			remap_addr = (u8*)ioremap_nocache((resource_size_t)(drhd->address),
 				VTD_PAGE_SIZE);
 			root_table_addr = dmar_readq(remap_addr + DMAR_CAP_REG);
 			sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] CAP Register: %016lX\n",
@@ -903,10 +1062,10 @@ void sb_lock_iommu(void)
 				g_entry_level = ENTRY_3LEVEL_PTE;
 			}
 
-			for (j = 0 ; j < 1024 ; j++)
+			for (i = 0 ; i < 1024 ; i++)
 			{
-				sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] Data %d %08X\n", j,
-					readl(remap_addr + 4 * j));
+				sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] Data %d %08X\n", i,
+					readl(remap_addr + 4 * i));
 			}
 
 			root_table_addr = dmar_readq(remap_addr + DMAR_RTADDR_REG);
@@ -914,6 +1073,7 @@ void sb_lock_iommu(void)
 			sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] Root Table Address: "
 				"%016lX\n", root_table_addr);
 
+			/* If IOMMU is already activated, use it. */
 			if (root_table_addr != 0)
 			{
 #if SHADOWBOX_USE_IOMMU_DEBUG
@@ -922,13 +1082,25 @@ void sb_lock_iommu(void)
 			}
 			else
 			{
-				start_iommu(remap_addr);
+				/* Intel Internal Graphics has dedicated DRHD, and for the sleep
+				   workaround, it should be skipped. */
+				if ((need_i915_workaround == 1) &&
+					(sb_is_intel_graphics_in(drhd) == 1))
+				{
+					start_iommu(remap_addr, need_i915_workaround);
+					need_i915_workaround = 0;
+				}
+				else
+				{
+					start_iommu(remap_addr, 0);
+				}
+
 #if SHADOWBOX_USE_EPT
-				sb_set_ept_read_only_page(hardware_unit->address);
+				sb_set_ept_read_only_page(drhd->address);
 #endif /* SHADOWBOX_USE_EPT */
-				sb_set_iommu_hide_page(hardware_unit->address);
+				sb_set_iommu_hide_page(drhd->address);
 				sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] MM Register Lock OK"
-					" %016X\n", hardware_unit->address);
+					" %016X\n", drhd->address);
 			}
 
 			iounmap(remap_addr);

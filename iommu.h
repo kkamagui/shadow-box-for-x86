@@ -19,6 +19,8 @@
  */
 /* Page table flags. */
 #define PS_BIT						(0x01 << 7)
+#define ENTRY_ID_1					(0x01 << 8)
+#define ENTRY_TRANS_HOST_TLB		(0x01 << 2)
 #define ENTRY_PRESENT				(0x01 << 0)
 #define ENTRY_FAULT_PROC_DISABLE	(0x01 << 1)
 #define ENTRY_3LEVEL_PTE			(0x01 << 0)
@@ -26,6 +28,7 @@
 
 #define IOMMU_PAGE_PRESENT			(0x01 << 0)
 #define IOMMU_PAGE_RW				(0x01 << 1)
+#define IOMMU_PAGE_PWT				(0x01 << 3)
 #define IOMMU_PAGE_ALL_ACCESS		(IOMMU_PAGE_PRESENT | IOMMU_PAGE_RW)
 
 /* Page size macro. */
