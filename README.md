@@ -32,7 +32,7 @@ You can watch the demo videos below.
 We always welcome your contributions. Issue report, bug fix, new feature implementation, anything is alright. Feel free to send us. 
 
 # 1.3. License
-Shadow-box has the dual license, GPL v2 and MIT. You can choose any license you want.
+Shadow-box has GPL v2 license. 
 
 # 2. Introduction of Shadow-Box
 Shadow-box is a security monitoring framework for operating systems using state-of-the-art virtualization technologies. 

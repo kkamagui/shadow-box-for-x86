@@ -8,8 +8,7 @@
  */
 
 /*
- * This software has dual license (MIT and GPL v2). See the GPL_LICENSE and
- * MIT_LICENSE file.
+ * This software has GPL v2 license. See the GPL_LICENSE file.
  */
 #ifndef __ASM_H__
 #define __ASM_H__

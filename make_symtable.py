@@ -8,8 +8,7 @@
 #     at National Security Research Institute of South Korea
 #
  
-# This software has dual license (MIT and GPL v2). See the GPL_LICENSE and
-# MIT_LICENSE file.
+# This software has GPL v2 license. See the GPL_LICENSE file.
 
 import sys 
 import glob
