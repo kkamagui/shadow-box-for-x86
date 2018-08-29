@@ -30,7 +30,7 @@
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 19, 0)
 #include <linux/vmalloc.h>
 #include <linux/proc_fs.h>
-#endif
+#endif /* LINUX_VERSION_CODE */
 
 /*
  * Variables.
@@ -75,6 +75,11 @@ static int sw_is_in_task_list(struct task_struct* task);
 static int sb_is_in_module_list(struct module* target);
 static int sb_get_task_count(void);
 static int sb_is_valid_vm_status(int cpu_id);
+
+#if SHADOWBOX_USE_GATEKEEPER
+static int sb_sw_check_systemcall_for_cred(int syscall_number);
+static void sb_sw_set_exit_flag_in_list(int tgid);
+#endif /* SHADOWBOX_USE_GATEKEEPER */
 
 #if SHADOWBOX_USE_WATCHER_DEBUG
 static int sb_get_list_count(struct list_head* head);
@@ -198,7 +203,7 @@ static int sb_check_sw_timer_expired_and_update(volatile u64* last_jiffies)
 	}
 	else
 	{
-		// Do nothing
+		/* Do nothing. */
 	}
 
 #if SHADOWBOX_HARD_TEST
@@ -340,7 +345,6 @@ void sb_sync_sw_page(u64 addr, u64 size)
 	u64 page_count;
 	u64 i;
 
-	// 올림
 	page_count = ((addr % VAL_4KB) + size + VAL_4KB - 1) / VAL_4KB;
 
 	for (i = 0 ; i < page_count ; i++)
@@ -355,8 +359,15 @@ void sb_sync_sw_page(u64 addr, u64 size)
 void sb_sw_callback_add_task(int cpu_id, struct sb_vm_exit_guest_register* context)
 {
 	struct task_struct* task;
+#if SHADOWBOX_USE_GATEKEEPER
+	struct list_head *node;
+	struct sb_task_node *target;
+#endif /* SHADOWBOX_USE_GATEKEEPER */
 
 	task = (struct task_struct*)context->rdi;
+
+	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "VM [%d] %s prepares to add list count=%d\n",
+		cpu_id, task->comm, g_task_count);
 
 	while (!write_trylock(g_tasklist_lock))
 	{
@@ -368,22 +379,60 @@ void sb_sw_callback_add_task(int cpu_id, struct sb_vm_exit_guest_register* conte
 
 	if (g_task_count == 0)
 	{
+		sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "VM [%d] %s task add skipped, count is 0\n",
+			cpu_id, task->comm);
+
 		goto EXIT;
 	}
 
 	/* Syncronize before introspection. */
 	sb_sync_sw_page((u64)task, sizeof(struct task_struct));
 
+#if !SHADOWBOX_USE_GATEKEEPER
 	if (task->pid != task->tgid)
 	{
 		goto EXIT;
 	}
+#endif /* !SHADOWBOX_USE_GATEKEEPER */
 
 	if (sw_is_in_task_list(task))
 	{
-		sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "VM [%d] Task Create addr:%016lX "
+		sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "VM [%d] Task is created addr:%016lX "
 			"phy:%016lX pid %d tgid %d [%s]\n", cpu_id, task, virt_to_phys(task),
 			task->pid, task->tgid, task->comm);
+
+#if SHADOWBOX_USE_GATEKEEPER
+		if (task->cred->uid.val < 1000)
+		{
+			sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "VM [%d] [%s][PID %d, TGID %d] "
+				"creates privileged task [%s][PID %d, TGID %d, UID %d]\n",
+				cpu_id, current->comm, current->pid, current->tgid, task->comm,
+				task->pid, task->tgid, task->cred->uid.val);
+		}
+
+		list_for_each(node, &(g_task_manager.existing_node_head))
+		{
+			target = container_of(node, struct sb_task_node, list);
+			if (current->pid == target->pid)
+			{
+				if (!((target->syscall_number == __NR_fork) ||
+					 (target->syscall_number == __NR_vfork) ||
+					 (target->syscall_number == __NR_clone) ||
+					 (target->syscall_number == -1)))
+				{
+					sb_sw_set_exit_flag_in_list(task->tgid);
+
+					sb_printf(LOG_LEVEL_ERROR, LOG_ERROR "VM [%d] [%s][PID %d, "
+						"TGID %d] creates task [%s][PID %d, TGID %d] in disallowed "
+						"syscall[%d], Kill it.\n",
+						cpu_id, current->comm, current->pid, current->tgid,
+						task->comm, task->pid, task->tgid, target->syscall_number);
+				}
+
+				break;
+			}
+		}
+#endif /* SHADOWBOX_USE_GATEKEEPER */
 
 		sb_add_task_to_sw_task_manager(task);
 		sb_check_sw_task_list(cpu_id);
@@ -417,14 +466,16 @@ void sb_sw_callback_del_task(int cpu_id, struct sb_vm_exit_guest_register* conte
 
 	task = (struct task_struct*)context->rdi;
 
+#if !SHADOWBOX_USE_GATEKEEPER
 	if (task->pid != task->tgid)
 	{
 		goto EXIT;
 	}
+#endif /* !SHADOWBOX_USE_GATEKEEPER */
 
 	if (sw_is_in_task_list(task))
 	{
-		sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "VM [%d] Task Delete %d %d [%s]\n",
+		sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "VM [%d] Task is deleted %d %d [%s]\n",
 			cpu_id, task->pid, task->tgid, task->comm);
 
 		sb_check_sw_task_list(cpu_id);
@@ -437,6 +488,7 @@ EXIT:
 
 
 #if SHADOWBOX_USE_WATCHER_DEBUG
+
 /*
  * Check task list for debugging.
  */
@@ -496,7 +548,8 @@ static void sb_validate_sw_module_list(int count_of_module_list)
 		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "===============================================================");
 	}
 }
-#endif
+
+#endif /* SHADOWBOX_USE_WATCHER_DEBUG */
 
 /*
  * Check task list.
@@ -554,6 +607,8 @@ void sb_sw_callback_task_switch(int cpu_id)
 {
 	sb_check_sw_task_list(cpu_id);
 }
+
+#if !SHADOWBOX_USE_GATEKEEPER
 
 /*
  * Process insmod callback.
@@ -651,20 +706,10 @@ void sb_sw_callback_rmmod(int cpu_id, struct sb_vm_exit_guest_register* context)
 	}
 	else
 	{
-		if (mod == THIS_MODULE)
-		{
-			/* Shadow-box should not be unloaded. */
-			sb_printf(LOG_LEVEL_ERROR, LOG_ERROR "VM [%d] Process try to unload, "
-				"Shadow-box. current PID=%d PPID=%d process name=%s\n", cpu_id,
-				current->pid, current->parent->pid, current->comm);
-		}
-		else
-		{
-			/* Shadow-box-helper should not be unloaded. */
-			sb_printf(LOG_LEVEL_ERROR, LOG_ERROR "VM [%d] Process try to unload, "
-				"Shado-box-helper. current PID=%d PPID=%d process name=%s\n", 
-				cpu_id, current->pid, current->parent->pid, current->comm);
-		}
+		/* Shadow-box should not be unloaded. */
+		sb_printf(LOG_LEVEL_ERROR, LOG_ERROR "VM [%d] Process try to unload, "
+			"Shadow-box. current PID=%d PPID=%d process name=%s\n", cpu_id,
+			current->pid, current->parent->pid, current->comm);
 
 		sb_insert_exception_to_vm();
 	}
@@ -672,6 +717,219 @@ void sb_sw_callback_rmmod(int cpu_id, struct sb_vm_exit_guest_register* context)
 EXIT:
 	mutex_unlock(&module_mutex);
 }
+
+#else /* !SHADOWBOX_USE_GATEKEEPER */
+
+/*
+ * Mark all process which has same tgid with exit flag.
+ */
+static void sb_sw_set_exit_flag_in_list(int tgid)
+{
+	struct list_head *node;
+	struct sb_task_node *target;
+
+	list_for_each(node, &(g_task_manager.existing_node_head))
+	{
+		target = container_of(node, struct sb_task_node, list);
+		if (target->tgid == tgid)
+		{
+			target->need_exit = 1;
+		}
+	}
+}
+
+/*
+ * Update cred callback.
+ */
+void sb_sw_callback_update_cred(int cpu_id, struct task_struct* task, struct cred* new)
+{
+	struct list_head *node;
+	struct sb_task_node *target;
+	int found = 0;
+
+	while (!write_trylock(g_tasklist_lock))
+	{
+		sb_pause_loop();
+		g_tasklock_fail_count++;
+	}
+
+	if (g_task_count == 0)
+	{
+		goto EXIT;
+	}
+
+	list_for_each(node, &(g_task_manager.existing_node_head))
+	{
+		target = container_of(node, struct sb_task_node, list);
+		if (task->pid == target->pid)
+		{
+			/* Monitor UID changes. */
+			if ((target->cred.uid.val != new->uid.val) && (new->uid.val < 1000))
+			{
+				sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "VM [%d] [%s][PID %d, TGID %d] "
+					"cred is changed, old[UID %d], new[UID %d, GID %d, EUID %d, "
+					"EGID %d, FSUID %d, FSGID %d]\n",
+					cpu_id, current->comm, current->pid, current->tgid,
+					target->cred.uid, new->uid, new->gid, new->euid, new->egid,
+					new->fsuid, new->fsgid);
+			}
+
+			/* Check valid system call. */
+			if (sb_sw_check_systemcall_for_cred(target->syscall_number) != 0)
+			{
+				sb_sw_set_exit_flag_in_list(task->tgid);
+
+				sb_printf(LOG_LEVEL_ERROR, LOG_ERROR "VM [%d] [%s][PID %d, TGID %d] cred "
+					"is changed in disallowed syscall[%d]. Restore old cred and kill it.\n",
+					cpu_id, current->comm, current->pid, current->tgid, target->syscall_number);
+
+				/* Recover previous uid and gid. */
+				new->uid.val = target->cred.uid.val;
+				new->gid.val = target->cred.gid.val;
+				new->suid.val = target->cred.suid.val;
+				new->sgid.val = target->cred.sgid.val;
+				new->euid.val = target->cred.euid.val;
+				new->egid.val = target->cred.egid.val ;
+				new->fsuid.val = target->cred.fsuid.val;
+				new->fsgid.val = target->cred.fsgid.val;
+			}
+			else
+			{
+				/* Root process is executed after fork system call. */
+				if ((target->syscall_number == __NR_execve) && (new->uid.val < 1000))
+				{
+					sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "VM [%d] [%s][PID %d, TGID %d] "
+						"is executed and has privilege, new[UID %d, "
+						"GID %d, EUID %d, EGID %d, FSUID %d, FSGID %d]\n",
+						cpu_id, current->comm, current->pid, current->tgid,
+						new->uid, new->gid, new->euid, new->egid, new->fsuid, new->fsgid);
+
+					memcpy(target->comm, current->comm, TASK_COMM_LEN);
+				}
+				sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "VM [%d] [%s][PID %d, TGID %d] "
+					"cred is changed, new[UID %d, GID %d, EUID %d, EGID %d, FSUID %d, "
+					"FSGID %d]\n",
+					cpu_id, current->comm, current->pid, current->tgid,
+					new->uid, new->gid, new->euid, new->egid,
+					new->fsuid, new->fsgid);
+
+				memcpy(&(target->cred), new, sizeof(struct cred));
+			}
+
+			found = 1;
+			break;
+		}
+	}
+
+EXIT:
+	write_unlock(g_tasklist_lock);
+
+	if (found == 0)
+	{
+		sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "VM [%d] [%s] updates cred failed [PID %d] [TGID %d]\n",
+			cpu_id, task->comm, task->pid, task->tgid);
+	}
+}
+
+/*
+ * Check system calls for updating cred.
+ */
+static int sb_sw_check_systemcall_for_cred(int syscall_number)
+{
+	/* Check valid system call. */
+	if (!((syscall_number == __NR_execve) || (syscall_number == __NR_setuid) ||
+		 (syscall_number == __NR_setgid) || (syscall_number == __NR_setreuid) ||
+		 (syscall_number == __NR_setregid) || (syscall_number == __NR_setresuid) ||
+		 (syscall_number == __NR_setresgid) || (syscall_number == __NR_setfsuid) ||
+		 (syscall_number == __NR_setfsgid) || (syscall_number == __NR_setgroups) ||
+		 (syscall_number == __NR_capset) || (syscall_number == __NR_prctl) ||
+		 (syscall_number == __NR_unshare) || (syscall_number == __NR_keyctl) ||
+		 (syscall_number == -1)))
+	{
+		return -1;
+	}
+
+	return 0;
+}
+
+/*
+ * Check cred callback.
+ */
+int sb_sw_callback_check_cred_update_syscall(int cpu_id, struct task_struct* task,
+	int syscall_number)
+{
+	struct list_head *node;
+	struct sb_task_node *target;
+	int found = 0;
+	int ret = 0;
+
+	while (!write_trylock(g_tasklist_lock))
+	{
+		sb_pause_loop();
+		g_tasklock_fail_count++;
+	}
+
+	if (g_task_count == 0)
+	{
+		goto EXIT;
+	}
+
+	list_for_each(node, &(g_task_manager.existing_node_head))
+	{
+		target = container_of(node, struct sb_task_node, list);
+		if (task->pid == target->pid)
+		{
+			target->syscall_number = syscall_number;
+
+			found = 1;
+
+			/* Is cred changed abnormally? or should be exited? */
+			if ((target->cred.uid.val != task->cred->uid.val) ||
+				(target->cred.gid.val != task->cred->gid.val) ||
+				(target->cred.suid.val != task->cred->suid.val) ||
+				(target->cred.sgid.val != task->cred->sgid.val) ||
+				(target->cred.euid.val != task->cred->euid.val) ||
+				(target->cred.egid.val != task->cred->egid.val) ||
+				(target->cred.fsuid.val != task->cred->fsuid.val) ||
+				(target->cred.fsgid.val != task->cred->fsgid.val))
+			{
+				sb_printf(LOG_LEVEL_NORMAL, LOG_ERROR "VM [%d] [%s][PID %d] "
+					"cred is changed abnormally org[UID %d, GID %d, SUID %d, SGID %d, "
+					"EUID %d, EGID %d, FSUID %d, FSGID %d], new[UID %d, GID %d, SUID %d, "
+					"SGID %d, EUID %d, EGID %d, FSUID %d, FSGID %d], Terminate it.\n",
+					cpu_id, current->comm, current->pid, target->cred.uid,
+					target->cred.gid, target->cred.suid, target->cred.sgid,
+					target->cred.euid, target->cred.egid, target->cred.fsuid,
+					target->cred.fsgid, task->cred->uid, task->cred->gid,
+					task->cred->suid, task->cred->sgid, task->cred->euid,
+					task->cred->egid, task->cred->fsuid, task->cred->fsgid);
+
+				sb_sw_set_exit_flag_in_list(target->tgid);
+
+				ret = -1;
+			}
+			else if (target->need_exit == 1)
+			{
+				ret = -1;
+			}
+
+			break;
+		}
+	}
+
+EXIT:
+	write_unlock(g_tasklist_lock);
+
+	if (found == 0)
+	{
+		sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "VM [%d] [%s][PID %d] check cred failed [TGID %d]\n",
+			cpu_id, task->comm, task->pid, task->tgid);
+	}
+
+	return ret;
+}
+
+#endif /* SHADOWBOX_USE_GATEKEEPER */
 
 #if SHADOWBOX_USE_WATCHER_DEBUG
 /*
@@ -801,9 +1059,18 @@ static int sb_get_task_count(void)
 {
 	struct task_struct *iter;
 	int count = 0;
+#if SHADOWBOX_USE_GATEKEEPER
+	struct task_struct *process;
+#endif /* SHADOWBOX_USE_GATEKEEPER */
 
 	sb_sync_sw_page((u64)(init_task.tasks.next), sizeof(struct task_struct));
+
+	/* If Gatekeeper is turned on, check all processes and threads. */
+#if !SHADOWBOX_USE_GATEKEEPER
 	for_each_process(iter)
+#else
+	for_each_process_thread(process, iter)
+#endif /* !SHADOWBOX_USE_GATEKEEPER */
 	{
 		count++;
 
@@ -843,6 +1110,9 @@ static int sb_add_task_to_sw_task_manager(struct task_struct *task)
 	node->tgid = task->tgid;
 	node->task = task;
 	memcpy(node->comm, task->comm, sizeof(node->comm));
+	memcpy(&(node->cred), task->cred, sizeof(struct cred));
+	node->syscall_number = -1;
+	node->need_exit = 0;
 
 	list_add(&(node->list), &(g_task_manager.existing_node_head));
 
@@ -855,8 +1125,16 @@ static int sb_add_task_to_sw_task_manager(struct task_struct *task)
 static void sb_copy_task_list_to_sw_task_manager(void)
 {
 	struct task_struct *iter;
+#if SHADOWBOX_USE_GATEKEEPER
+	struct task_struct *process;
+#endif /* SHADOWBOX_USE_GATEKEEPER */
 
+	/* If Gatekeeper is turned on, check all processes and threads. */
+#if !SHADOWBOX_USE_GATEKEEPER
 	for_each_process(iter)
+#else
+	for_each_process_thread(process, iter)
+#endif /* SHADOWBOX_USE_GATEKEEPER */
 	{
 		if (sb_add_task_to_sw_task_manager(iter) != 0)
 		{
@@ -973,10 +1251,17 @@ static int sw_is_in_task_list(struct task_struct* task)
 {
 	struct task_struct *iter;
 	int is_in = 0;
+#if SHADOWBOX_USE_GATEKEEPER
+	struct task_struct *process;
+#endif /* SHADOWBOX_USE_GATEKEEPER */
 
 	sb_sync_sw_page((u64)(init_task.tasks.next), sizeof(struct task_struct));
 
+#if !SHADOWBOX_USE_GATEKEEPER
 	for_each_process(iter)
+#else
+	for_each_process_thread(process, iter)
+#endif /* SHADOWBOX_USE_GATEKEEPER */
 	{
 		if ((iter == task) && (task->pid == iter->pid) &&
 			(task->tgid == iter->tgid))

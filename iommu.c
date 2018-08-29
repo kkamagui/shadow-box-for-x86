@@ -28,7 +28,7 @@
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 19, 0)
 #include <linux/vmalloc.h>
-#endif
+#endif /* LINUX_VERSION_CODE */
 
 struct sb_iommu_info g_iommu_info = {0, };
 u32 g_entry_level = ENTRY_4LEVEL_PTE;
@@ -38,6 +38,7 @@ static int sb_need_intel_i915_workaround(void);
 static int sb_is_intel_graphics_in(struct acpi_dmar_hardware_unit* drhd);
  
 #if SHADOWBOX_USE_IOMMU_DEBUG
+
 /*
  * Parse PTE.
  */
@@ -284,8 +285,8 @@ static void sb_parse_iommu_root_entry(u64 root_table_addr)
 		}
 	}
 }
-#endif
 
+#endif /* SHADOWBOX_USE_IOMMU_DEBUG */
 
 /*
  * Wait until the operation is finished.
@@ -488,7 +489,7 @@ void sb_setup_iommu_pagetable_4KB(void)
 	}
 	clflush_cache_range(pstIOMMU, IOMMU_PAGE_SIZE);
 
-	// Setup PDPTEPD
+	/* Setup PDPTEPD. */
 	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "Setup PDPTEPD\n");
 	for (j = 0 ; j < g_iommu_info.pdpte_pd_page_count ; j++)
 	{
@@ -805,7 +806,7 @@ void sb_protect_iommu_pages(void)
 
 	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "Protect IOMMU\n");
 
-	// Hide page table.
+	/* Hide page table. */
 	end = (u64)g_iommu_info.pml4_page_addr_array +
 		g_iommu_info.pml4_page_count * sizeof(u64*);
 	sb_hide_range((u64)g_iommu_info.pml4_page_addr_array, end, 1);
@@ -993,18 +994,26 @@ void sb_lock_iommu(void)
 	u8* remap_addr;
 	u64 start;
 	u64 root_table_addr = 0;
-	acpi_size dmar_table_size = 0;
 	acpi_status result = AE_OK;
 	int i;
 	int need_i915_workaround = 0;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 10, 0)
+	acpi_size dmar_table_size = 0;
+#endif /* LINUX_VERSION_CODE */
 
 	sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "Lock IOMMU\n");
 
 	need_i915_workaround = sb_need_intel_i915_workaround();
 
 	/* Read ACPI. */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 10, 0)
 	result = acpi_get_table_with_size(ACPI_SIG_DMAR, 0,
 		(struct acpi_table_header **)&dmar_ptr, &dmar_table_size);
+#else
+	result = acpi_get_table(ACPI_SIG_DMAR, 0,
+		(struct acpi_table_header **)&dmar_ptr);
+#endif /* LINUX_VERSION_CODE */
+
 	if (!ACPI_SUCCESS(result) || (dmar_ptr == NULL))
 	{
 		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "    [*] WARNING: DMAR find error.\n");
@@ -1122,12 +1131,20 @@ void sb_unlock_iommu(void)
 	struct acpi_dmar_hardware_unit* hardware_unit;
 	u8* remap_addr;
 	u64 start;
-	acpi_size dmar_table_size = 0;
 	acpi_status result = AE_OK;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 10, 0)
+	acpi_size dmar_table_size = 0;
+#endif /* LINUX_VERSION_CODE */
 
 	/* Read ACPI. */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 10, 0)
 	result = acpi_get_table_with_size(ACPI_SIG_DMAR, 0,
 		(struct acpi_table_header **)&dmar_ptr, &dmar_table_size);
+#else
+	result = acpi_get_table(ACPI_SIG_DMAR, 0,
+		(struct acpi_table_header **)&dmar_ptr);
+#endif /* LINUX_VERSION_CODE */
+
 	if (!ACPI_SUCCESS(result) || (dmar_ptr == NULL))
 	{
 		return ;

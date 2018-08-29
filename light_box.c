@@ -13,35 +13,19 @@
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/init.h>
-#include <linux/syscalls.h>
-#include <linux/slab.h>
 #include <linux/delay.h>
 #include <linux/kthread.h>
-#include <linux/smp.h>
-#include <linux/cpumask.h>
-#include <linux/getcpu.h>
-#include <linux/mm.h>
-#include <asm/io.h>
 #include <asm/desc.h>
 #include <linux/kallsyms.h>
-#include <asm/reboot.h>
-#include <linux/reboot.h>
-#include <asm/cacheflush.h>
-#include <linux/hardirq.h>
-#include <asm/processor.h>
-#include <asm/pgtable_64.h>
 #include <asm/hw_breakpoint.h>
 #include <asm/debugreg.h>
 #include <net/sock.h>
 #include <net/tcp.h>
 #include <linux/utsname.h>
-#include <linux/mmzone.h>
 #include <linux/jiffies.h>
 #include <linux/tboot.h>
-#include <linux/log2.h>
 #include <linux/version.h>
 #include <linux/kfifo.h>
-#include <asm/uaccess.h>
 #include "asm.h"
 #include "shadow_box.h"
 #include "shadow_watcher.h"
@@ -52,7 +36,7 @@
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 19, 0)
 #include <linux/vmalloc.h>
-#endif
+#endif /* LINUX_VERSION_CODE */
 
 /*
  * Variables.
@@ -107,6 +91,17 @@ struct socket* g_tcp_sock = NULL;
 struct socket* g_udp_sock = NULL;
 rwlock_t* g_tasklist_lock;
 
+/* Variables for breakpoint. */
+static u64 g_create_task;
+static u64 g_delete_task;
+#if !SHADOWBOX_USE_GATEKEEPER
+static u64 g_create_module;
+static u64 g_delete_module;
+#else
+static u64 g_syscall_64;
+static u64 g_commit_creds;
+#endif /* !SHADOWBOX_USE_GATEKEEPER */
+
 /* Variables for operating. */
 u64 g_max_ram_size = 0;
 struct sb_memory_pool_struct g_memory_pool = {0, };
@@ -120,6 +115,18 @@ static volatile u64 g_first_flag[MAX_PROCESSOR_COUNT] = {0, };
 
 volatile u64 g_dump_jiffies = 0;
 u64 g_dump_count[MAX_VM_EXIT_DUMP_COUNT] = {0, };
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0)
+u64 page_offset_base = 0xffff880000000000;
+#endif /* LINUX_VERSION_CODE */
+
+#ifndef GFP_KERNEL_ACCOUNT
+#define GFP_KERNEL_ACCOUNT 	GFP_KERNEL
+#endif /* GFP_KERNEL_ACCOUNT */
+
+#ifndef PGD_ALLOCATION_ORDER
+#define PGD_ALLOCATION_ORDER 	1
+#endif /* PGD_ALLOCATION_ORDER */
 
 /*
  * Static functions.
@@ -157,13 +164,17 @@ static int sb_vm_thread(void* pvArgument);
 static void sb_dup_page_table_for_host(void);
 static void sb_protect_kernel_ro_area(void);
 static void sb_protect_module_list_ro_area(void);
+#if SHADOWBOX_USE_EPT
 static void sb_protect_vmcs(void);
-static void sb_protect_gdt(int cpu_id);
 static void sb_protect_shadow_box_module(void);
+static void sb_lock_range(u64 start_addr, u64 end_addr, int alloc_type);
+#endif /* SHADOWBOX_USE_EPT */
+static void sb_protect_gdt(int cpu_id);
 static void sb_advance_vm_guest_rip(void);
 static u64 sb_calc_vm_pre_timer_value(void);
 static unsigned long sb_encode_dr7(int dr_num, unsigned int len, unsigned int type);
 static void sb_print_shadow_box_logo(void);
+
 #if SHADOWBOX_USE_SHUTDOWN
 static int sb_vm_thread_shutdown(void* argument);
 static void sb_shutdown_vm_this_core(int cpu_id, struct sb_vm_exit_guest_register*
@@ -173,7 +184,7 @@ static void sb_fill_context_from_vm_guest(struct sb_vm_exit_guest_register*
 static void sb_restore_context_from_vm_guest(int cpu_id, struct sb_vm_full_context*
 	full_context, u64 guest_rsp);
 #endif /* SHADOWBOX_USE_SHUTDOWN */
-static void sb_lock_range(u64 start_addr, u64 end_addr, int alloc_type);
+
 static void sb_get_function_pointers(void);
 static int sb_is_system_shutdowning(void);
 static void sb_disable_desc_monitor(void);
@@ -185,6 +196,19 @@ static void sb_set_reg_value_from_index(struct sb_vm_exit_guest_register*
 	guest_context, int index, u64 reg_value);
 static u64 sb_get_reg_value_from_index(struct sb_vm_exit_guest_register*
 	guest_context, int index);
+
+/* Functions for breakpoints. */
+static void sb_init_breakpoint_address(void);
+#if !SHADOWBOX_USE_GATEKEEPER
+static void sb_set_process_module_monitor_mode(int cpu_id);
+static void sb_handle_process_and_module_breakpoints(int cpu_id, u64 dr6,
+	struct sb_vm_exit_guest_register* guest_context);
+#else
+static void sb_set_syscall_monitor_mode(int cpu_id);
+static void sb_handle_systemcall_breakpoints(int cpu_id, u64 dr6,
+	struct sb_vm_exit_guest_register* guest_context);
+#endif /*!SHADOWBOX_USE_GATEKEEPER */
+
 
 /* Functions for vm exit. */
 static void sb_vm_exit_callback_int(int cpu_id, unsigned long dr6, struct
@@ -371,6 +395,10 @@ static int __init shadow_box_init(void)
 	sb_protect_iommu_pages();
 #endif /* SHADOWBOX_USE_IOMMU */
 
+#if SHADOWBOX_USE_HW_BREAKPOINT
+	sb_init_breakpoint_address();
+#endif /* SHADOWBOX_USE_HW_BREAKPOINT */
+
 	/* Prepare Shadow-watcher */
 	if (sb_prepare_shadow_watcher() != 0)
 	{
@@ -506,6 +534,18 @@ static void __exit shadow_box_exit(void)
  */
 static void sb_print_shadow_box_logo(void)
 {
+#if SHADOWBOX_USE_GATEKEEPER
+	sb_printf(LOG_LEVEL_ERROR, "     \n");
+	sb_printf(LOG_LEVEL_ERROR, "██████╗  █████╗ ████████╗███████╗██╗  ██╗███████╗███████╗██████╗ ███████╗██████╗ \n");
+	sb_printf(LOG_LEVEL_ERROR, "██╔════╝ ██╔══██╗╚══██╔══╝██╔════╝██║ ██╔╝██╔════╝██╔════╝██╔══██╗██╔════╝██╔══██╗ \n");
+	sb_printf(LOG_LEVEL_ERROR, "██║  ███╗███████║   ██║   █████╗  █████╔╝ █████╗  █████╗  ██████╔╝█████╗  ██████╔╝ \n");
+	sb_printf(LOG_LEVEL_ERROR, "██║   ██║██╔══██║   ██║   ██╔══╝  ██╔═██╗ ██╔══╝  ██╔══╝  ██╔═══╝ ██╔══╝  ██╔══██╗ \n");
+	sb_printf(LOG_LEVEL_ERROR, "╚██████╔╝██║  ██║   ██║   ███████╗██║  ██╗███████╗███████╗██║     ███████╗██║  ██║ \n");
+	sb_printf(LOG_LEVEL_ERROR, " ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚══════╝╚═╝  ╚═╝╚══════╝╚══════╝╚═╝     ╚══════╝╚═╝  ╚═╝ \n");
+	sb_printf(LOG_LEVEL_ERROR, "     \n");
+	sb_printf(LOG_LEVEL_ERROR, "                                  Powered by\n");
+#endif
+
 	sb_printf(LOG_LEVEL_ERROR, "     \n");
 	sb_printf(LOG_LEVEL_ERROR, "███████╗██╗  ██╗ █████╗ ██████╗  ██████╗ ██╗    ██╗      ██████╗  ██████╗ ██╗  ██╗\n");
 	sb_printf(LOG_LEVEL_ERROR, "██╔════╝██║  ██║██╔══██╗██╔══██╗██╔═══██╗██║    ██║      ██╔══██╗██╔═══██╗╚██╗██╔╝\n");
@@ -516,6 +556,7 @@ static void sb_print_shadow_box_logo(void)
 	sb_printf(LOG_LEVEL_ERROR, "     \n");
 	sb_printf(LOG_LEVEL_ERROR, "              Lightweight Hypervisor-Based Kernel Protector v2.0.0\n");
 	sb_printf(LOG_LEVEL_ERROR, "     \n");
+
 }
 
 /*
@@ -560,7 +601,7 @@ static void sb_trigger_shutdown_timer(void)
 	if (atomic_cmpxchg(&g_is_shutdown_trigger_set, 0, 1) == 0)
 	{
 #if SHADOWBOX_USE_IOMMU
-		//sb_unlock_iommu();
+		/* sb_unlock_iommu(); */
 #endif /* SHADOWBOX_USE_IOMMU */
 
 		g_shutdown_jiffies = jiffies;
@@ -652,7 +693,7 @@ static int sb_get_kernel_version_index(void)
 }
 
 /*
- * Check kernel ASLR
+ * Check kernel ASLR.
  */
 static int sb_is_kaslr_working(void)
 {
@@ -749,7 +790,6 @@ u64 sb_get_symbol_address(char* symbol)
 	return log_addr;
 }
 
-
 /*
  * Convert DR7 data from debug register index, length, type.
  */
@@ -763,7 +803,6 @@ static unsigned long sb_encode_dr7(int index, unsigned int len, unsigned int typ
 
 	return value;
 }
-
 
 /*
  * Dump memory in hex format.
@@ -1057,6 +1096,8 @@ static int sb_check_gdtr(int cpu_id)
 	return result;
 }
 
+#if SHADOWBOX_USE_EPT
+
 /*
  * Lock memory range from the guest.
  */
@@ -1087,6 +1128,8 @@ static void sb_lock_range(u64 start_addr, u64 end_addr, int alloc_type)
 
 	}
 }
+
+#endif
 
 /*
  * Set permissions to memory range.
@@ -1217,7 +1260,7 @@ static void sb_add_and_protect_module_ro(struct module* mod)
 	mod_core_size = (u64)mod->core_size;
 	mod_core_text_size = (u64)mod->core_text_size;
 	mod_core_ro_size = (u64)mod->core_ro_size;
-#else
+#else /* LINUX_VERSION_CODE */
 	mod_init_base = (u64)(mod->init_layout.base);
 	mod_init_size = (u64)(mod->init_layout.size);
 	mod_init_text_size = (u64)(mod->init_layout.text_size);
@@ -1226,7 +1269,7 @@ static void sb_add_and_protect_module_ro(struct module* mod)
 	mod_core_size = (u64)(mod->core_layout.size);
 	mod_core_text_size = (u64)(mod->core_layout.text_size);
 	mod_core_ro_size = (u64)(mod->core_layout.ro_size);
-#endif
+#endif /* LINUX_VERSION_CODE */
 
 	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] mod:%p [%s]", mod, mod->name);
 	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] init:0x%p module_init:0x%08lX"
@@ -1241,7 +1284,7 @@ static void sb_add_and_protect_module_ro(struct module* mod)
 
 #if SHADOWBOX_USE_EPT
 	sb_lock_range(mod_core_base, mod_core_base + mod_core_ro_size, ALLOC_VMALLOC);
-#endif
+#endif /* SHADOWBOX_USE_EPT */
 	sb_add_ro_area(mod_core_base, mod_core_base + mod_core_ro_size, RO_MODULE);
 }
 
@@ -1280,7 +1323,7 @@ static void sb_protect_module_list_ro_area(void)
 		mod_core_size = mod->core_size;
 #else
 		mod_core_size = mod->core_layout.size;
-#endif
+#endif /* LINUX_VERSION_CODE */
 		if (mod_core_size == 0)
 		{
 			continue;
@@ -1291,6 +1334,8 @@ static void sb_protect_module_list_ro_area(void)
 
 	sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "    [*] Complete\n");
 }
+
+#if SHADOWBOX_USE_EPT
 
 /*
  * Protect Shadow-box module
@@ -1318,7 +1363,7 @@ static void sb_protect_shadow_box_module(void)
 	mod_core_size = (u64)mod->core_size;
 	mod_core_text_size = (u64)mod->core_text_size;
 	mod_core_ro_size = (u64)mod->core_ro_size;
-#else
+#else /* LINUX_VERSION_CODE */
 	mod_init_base = (u64)(mod->init_layout.base);
 	mod_init_size = (u64)(mod->init_layout.size);
 	mod_init_text_size = (u64)(mod->init_layout.text_size);
@@ -1327,7 +1372,7 @@ static void sb_protect_shadow_box_module(void)
 	mod_core_size = (u64)(mod->core_layout.size);
 	mod_core_text_size = (u64)(mod->core_layout.text_size);
 	mod_core_ro_size = (u64)(mod->core_layout.ro_size);
-#endif
+#endif /* LINUX_VERSION_CODE */
 
 	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "Protect Shadow-Box Area\n");
 	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] mod:%p [%s], size of module"
@@ -1349,7 +1394,8 @@ static void sb_protect_shadow_box_module(void)
 	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] sb_system_reboot_notify:%016lX,"
 		" g_vm_reboot_nb:%016lX", (u64)sb_system_reboot_notify,
 		(u64)g_vm_reboot_nb_ptr);
-#endif
+#endif /* SHADOWBOX_USE_SHUTDOWN */
+
 	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] Complete\n");
 
 	sb_hide_range(mod_core_base, mod_core_base + mod_core_size, ALLOC_VMALLOC);
@@ -1361,6 +1407,8 @@ static void sb_protect_shadow_box_module(void)
 	sb_set_all_access_range((u64)g_shadow_box_module, (u64)g_shadow_box_module +
 		sizeof(struct module), ALLOC_VMALLOC);
 }
+
+#endif /* SHADOWBOX_USE_EPT */
 
 /*
  * Protect GDT and IDT.
@@ -1379,7 +1427,7 @@ static void sb_protect_gdt(int cpu_id)
 
 #if SHADOWBOX_USE_EPT
 	sb_lock_range(idtr.address, (idtr.address + 0xFFF) & MASK_PAGEADDR, ALLOC_VMALLOC);
-#endif
+#endif /* SHADOWBOX_USE_EPT */
 }
 
 /*
@@ -1635,13 +1683,13 @@ u64 sb_sync_page_table2(u64 addr)
 	u64 value;
 	u64 expand_value = 0;
 
-	/* Skip direct mapping area */
+	/* Skip direct mapping area. */
 	if (((u64)page_offset_base <= addr) && (addr < (u64)page_offset_base + (64 * VAL_1TB)))
 	{
 		return 0;
 	}
 
-	/* Skip static kernel object area */
+	/* Skip static kernel object area. */
 	if (sb_is_addr_in_kernel_ro_area((void*)addr))
 	{
 		return 0;
@@ -1664,7 +1712,7 @@ u64 sb_sync_page_table2(u64 addr)
 	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "addr = %016lX PML4 index %ld %016lX "
 		"%016lX\n", addr, pml4_index, pml4, pml4->entry[pml4_index]);
 
-	/* Get PDPTE_PD from PML4 */
+	/* Get PDPTE_PD from PML4. */
 	if (vm_is_new_page_table_needed(pml4, NULL, pml4_index) == 1)
 	{
 		value = vm_check_alloc_page_table(pml4, pml4_index);
@@ -1686,7 +1734,7 @@ u64 sb_sync_page_table2(u64 addr)
 	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "PDPTE_PD index %d %016lX %016lX\n",
 		pdpte_pd_index, pdpte_pd, pdpte_pd->entry[pdpte_pd_index]);
 
-	/* If PDEPT exist, syncronize the flag */
+	/* If PDEPT exist, syncronize the flag. */
 	if (vm_is_new_page_table_needed(pdpte_pd, NULL, pdpte_pd_index) == 1)
 	{
 		value = vm_check_alloc_page_table(pdpte_pd, pdpte_pd_index);
@@ -1709,7 +1757,7 @@ u64 sb_sync_page_table2(u64 addr)
 	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "PDEPT index %d %016lX %016lX\n",
 		pdept_index, pdept, pdept->entry[pdept_index]);
 
-	/* If PTE exist, syncronize the flag */
+	/* If PTE exist, syncronize the flag. */
 	if (vm_is_new_page_table_needed(pdept, NULL, pdept_index) == 1)
 	{
 		value = vm_check_alloc_page_table(pdept, pdept_index);
@@ -1730,10 +1778,10 @@ u64 sb_sync_page_table2(u64 addr)
 	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "PTE index %d %016lX %016lX\n",
 		pte_index, pte, pte->entry[pte_index]);
 
-	/* Copy PTE from the guest */
+	/* Copy PTE from the guest. */
 	pte->entry[pte_index] = phy_entry.phy_addr[3];
 
-	/* Update page table to CPU */
+	/* Update page table to CPU. */
 	sb_set_cr3(g_vm_host_phy_pml4);
 	return expand_value;
 }
@@ -1761,13 +1809,13 @@ u64 sb_sync_page_table(u64 addr)
 	u64 value;
 	u64 expand_value = 0;
 
-	/* Skip direct mapping area */
+	/* Skip direct mapping area. */
 	if (((u64)page_offset_base <= addr) && (addr < (u64)page_offset_base + (64 * VAL_1TB)))
 	{
 		return 0;
 	}
 
-	/* Skip static kernel object area */
+	/* Skip static kernel object area. */
 	if (sb_is_addr_in_kernel_ro_area((void*)addr))
 	{
 		return 0;
@@ -1794,7 +1842,7 @@ u64 sb_sync_page_table(u64 addr)
 		init_pml4->entry[pml4_index]);
 
 	/*
-	 * Get PDPTE_PD from PML4
+	 * Get PDPTE_PD from PML4.
 	 */
 	init_pdpte_pd = (struct sb_pagetable*)(init_pml4->entry[pml4_index]);
 	if ((init_pdpte_pd == 0) || ((u64)init_pdpte_pd & MASK_PAGE_SIZE_FLAG))
@@ -1812,7 +1860,7 @@ u64 sb_sync_page_table(u64 addr)
 		{
 			sb_pause_loop();
 		}
-#endif
+#endif /* SHADOWBOX_USE_PAGE_DEBUG */
 		goto EXIT;
 	}
 
@@ -1835,7 +1883,7 @@ u64 sb_sync_page_table(u64 addr)
 		{
 			sb_pause_loop();
 		}
-#endif
+#endif /* SHADOWBOX_USE_PAGE_DEBUG */
 	}
 
 	init_pdpte_pd = phys_to_virt((u64)init_pdpte_pd & ~(MASK_PAGEFLAG));
@@ -1843,7 +1891,7 @@ u64 sb_sync_page_table(u64 addr)
 	vm_pdpte_pd = phys_to_virt((u64)vm_pdpte_pd & ~(MASK_PAGEFLAG));
 
 	/*
-	 * Get PDEPT from PDPTE_PD
+	 * Get PDEPT from PDPTE_PD.
 	 */
 	init_pdept = (struct sb_pagetable*)(init_pdpte_pd->entry[pdpte_pd_index]);
 
@@ -1873,12 +1921,12 @@ u64 sb_sync_page_table(u64 addr)
 		{
 			sb_pause_loop();
 		}
-#endif
+#endif /* SHADOWBOX_USE_PAGE_DEBUG */
 
 		goto EXIT;
 	}
 
-	/* If PDEPT exist, syncronize the flag */
+	/* If PDEPT exist, syncronize the flag. */
 	if (vm_is_new_page_table_needed(vm_pdpte_pd, init_pdpte_pd, pdpte_pd_index) == 1)
 	{
 		value = vm_check_alloc_page_table(vm_pdpte_pd, pdpte_pd_index);
@@ -1899,7 +1947,7 @@ u64 sb_sync_page_table(u64 addr)
 		{
 			sb_pause_loop();
 		}
-#endif
+#endif /* SHADOWBOX_USE_PAGE_DEBUG */
 	}
 
 	init_pdept = phys_to_virt((u64)init_pdept & ~(MASK_PAGEFLAG));
@@ -1907,7 +1955,7 @@ u64 sb_sync_page_table(u64 addr)
 	vm_pdept = phys_to_virt((u64)vm_pdept & ~(MASK_PAGEFLAG));
 
 	/*
-	 * Get PTE from PDPTE_PD
+	 * Get PTE from PDPTE_PD.
 	 */
 	init_pte = (struct sb_pagetable*)(init_pdept->entry[pdept_index]);
 	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "PDEPT index %d %016lX %016lX %016lX\n", pdept_index, vm_pdept, init_pdept, init_pdept->entry[pdept_index]);
@@ -1934,12 +1982,12 @@ u64 sb_sync_page_table(u64 addr)
 		{
 			sb_pause_loop();
 		}
-#endif
+#endif /* SHADOWBOX_USE_PAGE_DEBUG */
 
 		goto EXIT;
 	}
 
-	/* If PTE exist, syncronize the flag */
+	/* If PTE exist, syncronize the flag. */
 	if (vm_is_new_page_table_needed(vm_pdept, init_pdept, pdept_index) == 1)
 	{
 		value = vm_check_alloc_page_table(vm_pdept, pdept_index);
@@ -1960,7 +2008,7 @@ u64 sb_sync_page_table(u64 addr)
 		{
 			sb_pause_loop();
 		}
-#endif
+#endif /* SHADOWBOX_USE_PAGE_DEBUG */
 
 	}
 	init_pte = phys_to_virt((u64)init_pte & ~(MASK_PAGEFLAG));
@@ -1972,7 +2020,7 @@ u64 sb_sync_page_table(u64 addr)
 	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "PTE index %d %016lX %016lX %016lX\n",
 		pte_index, vm_pte, init_pte, init_pte->entry[pte_index]);
 
-	/* Copy PTE from the guest */
+	/* Copy PTE from the guest. */
 	if (vm_pte->entry[pte_index] != init_pte->entry[pte_index])
 	{
 		sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "===================INFO======================");
@@ -2000,13 +2048,13 @@ u64 sb_sync_page_table(u64 addr)
 			sb_pause_loop();
 		}
 	}
-#endif
+#endif /* SHADOWBOX_USE_PAGE_DEBUG */
 
 	vm_pte->entry[pte_index] = init_pte->entry[pte_index];
 
 EXIT:
 
-	/* Update page table to CPU */
+	/* Update page table to CPU. */
 	sb_set_cr3(g_vm_host_phy_pml4);
 	return expand_value;
 }
@@ -2052,14 +2100,14 @@ static void sb_dup_page_table_for_host(void)
 #if SHADOWBOX_USE_EPT
 	sb_hide_range((u64)vm_pml4, (u64)vm_pml4 + PAGE_SIZE * (0x1 << PGD_ALLOCATION_ORDER),
 		ALLOC_KMALLOC);
-#endif
+#endif /* SHADOWBOX_USE_EPT */
 
 	g_vm_host_phy_pml4 = virt_to_phys(vm_pml4);
 
 	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "PML4 Logical %016lX, Physical %016lX, "
 		"page_offset_base %016lX\n", vm_pml4, g_vm_host_phy_pml4, page_offset_base);
 
-	/* Create page tables */
+	/* Create page tables. */
 	for (i = 0 ; i < 512 ; i++)
 	{
 		cur_addr = i * VAL_512GB;
@@ -2076,11 +2124,11 @@ static void sb_dup_page_table_for_host(void)
 #if SHADOWBOX_USE_EPT
 		sb_hide_range((u64)vm_pml4->entry[i], (u64)(vm_pml4->entry[i]) + PAGE_SIZE,
 			ALLOC_KMALLOC);
-#endif
+#endif /* SHADOWBOX_USE_EPT */
 		vm_pml4->entry[i] = virt_to_phys((void*)(vm_pml4->entry[i]));
 		vm_pml4->entry[i] |= org_pml4->entry[i] & MASK_PAGEFLAG;
 
-		/* Run loop to copy PDEPT */
+		/* Run loop to copy PDEPT. */
 		org_pdpte_pd = (struct sb_pagetable*)(org_pml4->entry[i] & ~(MASK_PAGEFLAG));
 		vm_pdpte_pd = (struct sb_pagetable*)(vm_pml4->entry[i] & ~(MASK_PAGEFLAG));
 		org_pdpte_pd = phys_to_virt((u64)org_pdpte_pd);
@@ -2097,17 +2145,17 @@ static void sb_dup_page_table_for_host(void)
 				continue;
 			}
 
-			/* Allocate PDEPT and copy */
+			/* Allocate PDEPT and copy. */
 			vm_pdpte_pd->entry[j] = (u64)kmalloc(0x1000, GFP_KERNEL | GFP_ATOMIC |
 				__GFP_COLD | __GFP_ZERO);
 #if SHADOWBOX_USE_EPT
 			sb_hide_range((u64)vm_pdpte_pd->entry[j], (u64)(vm_pdpte_pd->entry[j]) +
 				PAGE_SIZE, ALLOC_KMALLOC);
-#endif
+#endif /* SHADOWBOX_USE_EPT */
 			vm_pdpte_pd->entry[j] = virt_to_phys((void*)(vm_pdpte_pd->entry[j]));
 			vm_pdpte_pd->entry[j] |= org_pdpte_pd->entry[j] & MASK_PAGEFLAG;
 
-			/* Run loop to copy PDEPT */
+			/* Run loop to copy PDEPT. */
 			org_pdept = (struct sb_pagetable*)(org_pdpte_pd->entry[j] & ~(MASK_PAGEFLAG));
 			vm_pdept = (struct sb_pagetable*)(vm_pdpte_pd->entry[j] & ~(MASK_PAGEFLAG));
 			org_pdept = phys_to_virt((u64)org_pdept);
@@ -2124,17 +2172,17 @@ static void sb_dup_page_table_for_host(void)
 					continue;
 				}
 
-				/* Allocate PTE and copy */
+				/* Allocate PTE and copy. */
 				vm_pdept->entry[k] = (u64)kmalloc(0x1000, GFP_KERNEL | GFP_ATOMIC |
 					__GFP_COLD | __GFP_ZERO);
 #if SHADOWBOX_USE_EPT
 				sb_hide_range((u64)vm_pdept->entry[k], (u64)(vm_pdept->entry[k]) + PAGE_SIZE,
 					ALLOC_KMALLOC);
-#endif
+#endif /* SHADOWBOX_USE_EPT */
 				vm_pdept->entry[k] = virt_to_phys((void*)(vm_pdept->entry[k]));
 				vm_pdept->entry[k] |= org_pdept->entry[k] & MASK_PAGEFLAG;
 
-				/* Run loop to copy PTE */
+				/* Run loop to copy PTE. */
 				org_pte = (struct sb_pagetable*)(org_pdept->entry[k] & ~(MASK_PAGEFLAG));
 				vm_pte = (struct sb_pagetable*)(vm_pdept->entry[k] & ~(MASK_PAGEFLAG));
 				org_pte = phys_to_virt((u64)org_pte);
@@ -2150,6 +2198,7 @@ static void sb_dup_page_table_for_host(void)
 	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] complete\n");
 }
 
+#if SHADOWBOX_USE_EPT
 
 /*
  * Protect VMCS structure.
@@ -2180,6 +2229,8 @@ static void sb_protect_vmcs(void)
 			(u64)g_virt_apic_page_addr[i] + VIRT_APIC_PAGE_SIZE, ALLOC_KMALLOC);
 	}
 }
+
+#endif /* SHADOWBOX_USE_EPT */
 
 /*
  * Hang system.
@@ -2386,7 +2437,7 @@ static int sb_vm_thread(void* argument)
 		mdelay(1);
 	}
 
-	/* Initialize VMX */
+	/* Initialize VMX. */
 	if (sb_init_vmx(cpu_id) < 0)
 	{
 		atomic_set(&g_enter_flags, 0);
@@ -2439,7 +2490,7 @@ static int sb_vm_thread(void* argument)
 		mdelay(1);
 	}
 
-	/* Enable interrupt */
+	/* Enable interrupt. */
 	local_irq_restore(irqs);
 	preempt_enable();
 
@@ -2455,7 +2506,7 @@ static int sb_vm_thread(void* argument)
 ERROR:
 	g_thread_result |= -1;
 
-	/* Enable interrupt */
+	/* Enable interrupt. */
 	local_irq_restore(irqs);
 	preempt_enable();
 
@@ -2469,7 +2520,7 @@ ERROR:
 }
 
 /*
- * Initialize VMX context (VMCS)
+ * Initialize VMX context (VMCS).
  */
 static int sb_init_vmx(int cpu_id)
 {
@@ -2484,7 +2535,7 @@ static int sb_init_vmx(int cpu_id)
 	u64 value;
 	int result;
 
-	// To handle the SMXE exception.
+	/* To handle the SMXE exception. */
 	if (g_support_smx)
 	{
 		cr4 = sb_get_cr4();
@@ -2545,7 +2596,7 @@ static int sb_init_vmx(int cpu_id)
 		vmx_VMCS_phy_addr);
 	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] Start VMX\n");
 
-	/* First data of VMCS should be VMX revision number */
+	/* First data of VMCS should be VMX revision number. */
 	vmx_VMCS_log_addr[0] = (u32)vmx_msr;
 	result = sb_start_vmx(&vmx_VMCS_phy_addr);
 	if (result == 0)
@@ -2561,13 +2612,13 @@ static int sb_init_vmx(int cpu_id)
 
 	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "Preparing Geust\n");
 
-	/* Allocate kernel memory for Guest VCMS */
+	/* Allocate kernel memory for Guest VCMS. */
 	guest_VMCS_log_addr = (u32*)(g_guest_vmcs_log_addr[cpu_id]);
 	guest_VMCS_phy_addr = (u32*)virt_to_phys(guest_VMCS_log_addr);
 	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] Alloc Physical Guest VMCS %016lX\n",
 		guest_VMCS_phy_addr);
 
-	/* First data of VMCS should be VMX revision number */
+	/* First data of VMCS should be VMX revision number. */
 	guest_VMCS_log_addr[0] = (u32) vmx_msr;
 	result = sb_clear_vmcs(&guest_VMCS_phy_addr);
 	if (result == 0)
@@ -2597,7 +2648,7 @@ static int sb_init_vmx(int cpu_id)
 }
 
 /*
- * Skip guest instruction
+ * Skip guest instruction.
  */
 static void sb_advance_vm_guest_rip(void)
 {
@@ -2612,7 +2663,7 @@ static void sb_advance_vm_guest_rip(void)
 }
 
 /*
- * Calculate preemption timer value
+ * Calculate preemption timer value.
  */
 static u64 sb_calc_vm_pre_timer_value(void)
 {
@@ -2625,7 +2676,7 @@ static u64 sb_calc_vm_pre_timer_value(void)
 }
 
 /*
- * Dump vm_exit event data
+ * Dump vm_exit event data.
  */
 void sb_dump_vm_exit_data(void)
 {
@@ -2691,7 +2742,7 @@ void sb_vm_exit_callback(struct sb_vm_exit_guest_register* guest_context)
 	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "VM [%d] EXIT Interrupt Info field: %016lX\n",
 		cpu_id, info_field);
 
-	/* Check system is shutdowning and shutdown timer is expired */
+	/* Check system is shutdowning and shutdown timer is expired. */
 	sb_trigger_shutdown_timer();
 	sb_is_shutdown_timer_expired();
 
@@ -2703,7 +2754,7 @@ void sb_vm_exit_callback(struct sb_vm_exit_guest_register* guest_context)
 		if (atomic_cmpxchg(&g_need_init_in_secure, 1, 0))
 		{
 #if SHADOWBOX_USE_EPT
-			/* Hide Shadow-box module here after all vm thread are terminated */
+			/* Hide Shadow-box module here after all vm thread are terminated. */
 			sb_protect_shadow_box_module();
 			sb_protect_shadow_watcher_data();
 #endif /* SHADOWBOX_USE_EPT */
@@ -2751,12 +2802,12 @@ void sb_vm_exit_callback(struct sb_vm_exit_guest_register* guest_context)
 			sb_advance_vm_guest_rip();
 			break;
 
-		/* Unconditional VM exit event */
+		/* Unconditional VM exit event. */
 		case VM_EXIT_REASON_CPUID:
 			sb_vm_exit_callback_cpuid(guest_context);
 			break;
 
-		/* For tboot interoperation*/
+		/* For tboot interoperation. */
 		case VM_EXIT_REASON_GETSEC:
 			sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] GETSEC call \n", cpu_id);
 			sb_advance_vm_guest_rip();
@@ -2768,7 +2819,7 @@ void sb_vm_exit_callback(struct sb_vm_exit_guest_register* guest_context)
 			sb_advance_vm_guest_rip();
 			break;
 
-		/* Unconditional VM exit event */
+		/* Unconditional VM exit event. */
 		case VM_EXIT_REASON_INVD:
 			sb_vm_exit_callback_invd();
 			break;
@@ -2802,7 +2853,7 @@ void sb_vm_exit_callback(struct sb_vm_exit_guest_register* guest_context)
 			sb_vm_exit_callback_vmcall(cpu_id, guest_context);
 			break;
 
-		/* Unconditional VM exit event (move fron reg_value) */
+		/* Unconditional VM exit event (move fron reg_value). */
 		case VM_EXIT_REASON_CTRL_REG_ACCESS:
 			sb_vm_exit_callback_access_cr(cpu_id, guest_context, exit_reason, exit_qual);
 			break;
@@ -2834,7 +2885,7 @@ void sb_vm_exit_callback(struct sb_vm_exit_guest_register* guest_context)
 			sb_advance_vm_guest_rip();
 			break;
 
-		/* For hardware breakpoint interoperation */
+		/* For hardware breakpoint interoperation. */
 		case VM_EXIT_REASON_MONITOR_TRAP_FLAG:
 			sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] VM_EXIT_REASON_TRAP_FLAG\n",
 				cpu_id);
@@ -2919,10 +2970,10 @@ static void sb_vm_exit_callback_int(int cpu_id, unsigned long dr6, struct
 {
 	unsigned long dr7;
 	u64 info_field;
-	int vector;
-	int type;
+	u64 vector;
+	u64 type;
  
-	// 8:10 bit is NMI
+	/* 8:10 bit is NMI. */
 	sb_read_vmcs(VM_DATA_VM_EXIT_INT_INFO, &info_field);
 	vector = VM_EXIT_INT_INFO_VECTOR(info_field);
 	type = VM_EXIT_INT_INFO_INT_TYPE(info_field);
@@ -2934,39 +2985,25 @@ static void sb_vm_exit_callback_int(int cpu_id, unsigned long dr6, struct
 		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] NMI Interrupt Occured\n", cpu_id);
 		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] ===================WARNING======================\n",
 			cpu_id);
+
+		return ;
 	}
 	else if (vector != VM_INT_DEBUG_EXCEPTION)
 	{
 		sb_remove_int_exception_from_vm(vector);
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] ===================WARNING vector %d======================\n",
+		cpu_id, vector);
 		return ;
 	}
 
 	/* For stable shutdown, skip processing if system is shutdowning. */
 	if (sb_is_system_shutdowning() == 0)
 	{
-		/* Create process case. */
-		if (dr6 & DR_BIT_ADD_TASK)
-		{
-			sb_sw_callback_add_task(cpu_id, guest_context);
-		}
-
-		/* Terminate process case. */
-		if (dr6 & DR_BIT_DEL_TASK)
-		{
-			sb_sw_callback_del_task(cpu_id, guest_context);
-		}
-
-		/* Load module case. */
-		if (dr6 & DR_BIT_INSMOD)
-		{
-			sb_sw_callback_insmod(cpu_id);
-		}
-
-		/* Unload module case. */
-		if (dr6 & DR_BIT_RMMOD)
-		{
-			sb_sw_callback_rmmod(cpu_id, guest_context);
-		}
+#if !SHADOWBOX_USE_GATEKEEPER
+		sb_handle_process_and_module_breakpoints(cpu_id, dr6, guest_context);
+#else
+		sb_handle_systemcall_breakpoints(cpu_id, dr6, guest_context);
+#endif /* !SHADOWBOX_USE_GATEKEEPER */
 	}
 
 	dr6 &= 0xfffffffffffffff0;
@@ -2979,6 +3016,102 @@ static void sb_vm_exit_callback_int(int cpu_id, unsigned long dr6, struct
 
 	sb_remove_int_exception_from_vm(vector);
 }
+
+#if !SHADOWBOX_USE_GATEKEEPER
+
+/*
+ * Handle process and module monitor breakpoints.
+ */
+static void sb_handle_process_and_module_breakpoints(int cpu_id, u64 dr6,
+	struct sb_vm_exit_guest_register* guest_context)
+{
+	/* Create process case. */
+	if (dr6 & DR_BIT_CREATE_TASK)
+	{
+		sb_sw_callback_add_task(cpu_id, guest_context);
+	}
+
+	/* Terminate process case. */
+	if (dr6 & DR_BIT_DELETE_TASK)
+	{
+		sb_sw_callback_del_task(cpu_id, guest_context);
+	}
+
+	/* Load module case. */
+	if (dr6 & DR_BIT_CREATE_MODULE)
+	{
+		sb_sw_callback_insmod(cpu_id);
+	}
+
+	/* Unload module case. */
+	if (dr6 & DR_BIT_DELETE_MODULE)
+	{
+		sb_sw_callback_rmmod(cpu_id, guest_context);
+	}
+}
+
+#else /* SHADOWBOX_USE_GATEKEEPER */
+
+/*
+ * Handle systemcall monitor breakpoints.
+ */
+static void sb_handle_systemcall_breakpoints(int cpu_id, u64 dr6,
+	struct sb_vm_exit_guest_register* guest_context)
+{
+	u64 syscall_number;
+
+	struct task_struct* task;
+	if (dr6 & DR_BIT_SYSCALL_64)
+	{
+		syscall_number = (int) guest_context->rax;
+
+		/* If cred is changed anbornally or should be killed, change syscall
+		   number to __NR_exit. */
+		if (sb_sw_callback_check_cred_update_syscall(cpu_id, current,
+			syscall_number) != 0)
+		{
+			guest_context->rax = __NR_exit;
+
+			sb_printf(LOG_LEVEL_ERROR, LOG_ERROR "VM [%d] An abnormal privilege "
+				"escalation is detected. [%s][PID %d, TGID %d] is killed\n",
+				cpu_id, current->comm, current->pid, current->tgid);
+		}
+	}
+
+	/* Create process. */
+	if (dr6 & DR_BIT_CREATE_TASK)
+	{
+		sb_sw_callback_add_task(cpu_id, guest_context);
+
+		task = (struct task_struct*)guest_context->rdi;
+		sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "VM [%d] [%s][PID %d] new task %s"
+			"[PID %d, TGID %d] is created\n",
+			cpu_id, current->comm, current->pid, task->comm, task->pid,
+			task->tgid);
+	}
+
+	/* Terminate process. */
+	if (dr6 & DR_BIT_DELETE_TASK)
+	{
+		sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "VM [%d] [%s][PID %d, TGID %d] is "
+			"deleted\n",
+			cpu_id, current->comm, current->pid, current->tgid);
+
+		sb_sw_callback_del_task(cpu_id, guest_context);
+	}
+
+	/* Change cred. */
+	if (dr6 & DR_BIT_COMMIT_CREDS)
+	{
+		sb_sw_callback_update_cred(cpu_id, current, (struct cred*)(guest_context->rdi));
+
+		sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "VM [%d] [%s][PID %d, TGID %d] "
+			"cred is changed\n",
+			cpu_id, current->comm, current->pid, current->tgid);
+	}
+}
+
+#endif /* !SHADOWBOX_USE_GATEKEEPER */
 
 /*
  * Process INIT IPI.
@@ -3291,7 +3424,7 @@ static void sb_set_value_to_memory(u64 inst_info, u64 addr, u64 value)
 	}
 }
 
-/**
+/*
  * Get value from memory.
  */
 static u64 sb_get_value_from_memory(u64 inst_info, u64 addr)
@@ -3361,6 +3494,7 @@ static void sb_vm_exit_callback_vmcall(int cpu_id, struct sb_vm_exit_guest_regis
 }
 
 #if SHADOWBOX_USE_SHUTDOWN
+
 /**
  *	Shutdown Shadow-box
  */
@@ -3462,7 +3596,7 @@ static void sb_restore_context_from_vm_guest(int cpu_id, struct sb_vm_full_conte
 	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "VM [%d] rip %016lX, %016lX\n", cpu_id,
 		full_context->rip, sb_vm_thread_shutdown);
 
-	/* Copy context to stack and restore */
+	/* Copy context to stack and restore. */
 	target_addr = guest_rsp - sizeof(struct sb_vm_full_context);
 	memcpy((void*)target_addr, full_context, sizeof(struct sb_vm_full_context));
 
@@ -3477,7 +3611,7 @@ static int sb_system_reboot_notify(struct notifier_block *nb, unsigned long code
 {
 	int cpu_count;
 
-	/* Call Shadow-box shutdown function */
+	/* Call Shadow-box shutdown function. */
 	sb_vm_call(VM_SERVICE_SHUTDOWN, NULL);
 
 	cpu_count = num_online_cpus();
@@ -3529,7 +3663,6 @@ void sb_insert_exception_to_vm(void)
 	u64 info_field;
 	sb_read_vmcs(VM_CTRL_VM_ENTRY_INT_INFO_FIELD, &info_field);
 
-	//info_field = VM_BIT_VM_ENTRY_INT_INFO_GP;
 	info_field = VM_BIT_VM_ENTRY_INT_INFO_UD;
 
 	sb_write_vmcs(VM_CTRL_VM_ENTRY_INT_INFO_FIELD, info_field);
@@ -3537,7 +3670,7 @@ void sb_insert_exception_to_vm(void)
 }
 
 /*
- * Remove INT1 exception from the guest.
+ * Remove INT exception from the guest.
  */
 static void sb_remove_int_exception_from_vm(int vector)
 {
@@ -3608,7 +3741,7 @@ static void sb_vm_exit_callback_ldtr_tr(int cpu_id, struct sb_vm_exit_guest_regi
 
 	switch(VM_INST_INFO_INST_IDENTITY(inst_info))
 	{
-		// SLDT
+		/* SLDT */
 		case VM_INST_INFO_SLDT:
 			sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] SLDT is not allowed\n",
 				cpu_id);
@@ -3626,7 +3759,7 @@ static void sb_vm_exit_callback_ldtr_tr(int cpu_id, struct sb_vm_exit_guest_regi
 			}
 			break;
 
-		// STR
+		/* STR */
 		case VM_INST_INFO_STR:
 			sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] STR is not allowed\n",
 				cpu_id);
@@ -3635,7 +3768,7 @@ static void sb_vm_exit_callback_ldtr_tr(int cpu_id, struct sb_vm_exit_guest_regi
 			sb_insert_exception_to_vm();
 			break;
 
-		// LLDT
+		/* LLDT */
 		case VM_INST_INFO_LLDT:
 			if (memory == 1)
 			{
@@ -3665,7 +3798,7 @@ static void sb_vm_exit_callback_ldtr_tr(int cpu_id, struct sb_vm_exit_guest_regi
 			}
 			break;
 
-		// LTR
+		/* LTR */
 		case VM_INST_INFO_LTR:
 			sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] LTR is not allowed\n",
 				cpu_id);
@@ -3693,7 +3826,7 @@ static void sb_vm_exit_callback_ept_violation(int cpu_id, struct sb_vm_exit_gues
 
 	if (sb_is_system_shutdowning() == 0)
 	{
-		/* If the address is in workaround area, set all permission to the page */
+		/* If the address is in workaround area, set all permission to the page. */
 		if (sb_is_workaround_addr(guest_physical) == 1)
 		{
 			sb_set_ept_all_access_page(guest_physical);
@@ -3703,11 +3836,11 @@ static void sb_vm_exit_callback_ept_violation(int cpu_id, struct sb_vm_exit_gues
 		}
 		else
 		{
-			/* Insert exception to the guest */
+			/* Insert exception to the guest. */
 			sb_insert_exception_to_vm();
 			sb_read_vmcs(VM_GUEST_CR0, &cr0);
 
-			/* If malware turns WP bit off, recover it again */
+			/* If malware turns WP bit off, recover it again. */
 			if ((cr0 & CR0_BIT_PG) && !(cr0 & CR0_BIT_WP))
 			{
 				sb_write_vmcs(VM_GUEST_CR0, cr0 | CR0_BIT_WP);
@@ -3768,7 +3901,7 @@ static void sb_vm_exit_callback_pre_timer_expired(int cpu_id)
 
 		/* Call the function of Shadow-watcher. */
 		sb_sw_callback_vm_timer(cpu_id);
-#endif
+#endif /* SHADOWBOX_USE_DESC_TABLE */
 	}
 
 	/* Reset VM timer. */
@@ -3796,7 +3929,7 @@ static void sb_setup_vm_host_register(struct sb_vm_host_register* sb_vm_host_reg
 
 	cpu_id = smp_processor_id();
 
-	/* Allocate kernel stack for VM exit */
+	/* Allocate kernel stack for VM exit. */
 	vm_exit_stack = (char*)(g_vm_exit_stack_addr[cpu_id]);
 	memset(vm_exit_stack, 0, stack_size);
 
@@ -3864,6 +3997,83 @@ static void sb_setup_vm_host_register(struct sb_vm_host_register* sb_vm_host_reg
 }
 
 /*
+ * Initialize breakpoint address.
+ */
+static void sb_init_breakpoint_address(void)
+{
+	g_create_task = sb_get_symbol_address("wake_up_new_task");
+	g_delete_task = sb_get_symbol_address("proc_flush_task");
+
+#if !SHADOWBOX_USE_GATEKEEPER
+	g_create_module = sb_get_symbol_address("ftrace_module_init");
+	g_delete_module = sb_get_symbol_address("free_module");
+#else
+	g_syscall_64 = sb_get_symbol_address("entry_SYSCALL_64");
+	g_commit_creds = sb_get_symbol_address("commit_creds");
+#endif /* SHADOWBOX_USE_GATEKEEPER */
+}
+
+/*
+ * Enable Breakpoints.
+ */
+static void sb_enable_breakpoints(void)
+{
+	unsigned long dr7;
+
+	dr7 = sb_encode_dr7(0, X86_BREAKPOINT_LEN_X, X86_BREAKPOINT_EXECUTE);
+	dr7 |= sb_encode_dr7(1, X86_BREAKPOINT_LEN_X, X86_BREAKPOINT_EXECUTE);
+	dr7 |= sb_encode_dr7(2, X86_BREAKPOINT_LEN_X, X86_BREAKPOINT_EXECUTE);
+	dr7 |= sb_encode_dr7(3, X86_BREAKPOINT_LEN_X, X86_BREAKPOINT_EXECUTE);
+	dr7 |= (0x01 << 10);
+
+	set_debugreg(dr7, 7);
+}
+
+/*
+ * Disable Breakpoints.
+ */
+static void sb_disable_breakpoints(void)
+{
+	set_debugreg(0, 7);
+}
+
+#if !SHADOWBOX_USE_GATEKEEPER
+
+/*
+ * Set breakpoints for process and module monitor.
+ */
+static void sb_set_process_module_monitor_mode(int cpu_id)
+{
+	sb_disable_breakpoints();
+
+	set_debugreg(g_create_task, 0);
+	set_debugreg(g_delete_task, 1);
+	set_debugreg(g_create_module, 2);
+	set_debugreg(g_delete_module, 3);
+
+	sb_enable_breakpoints();
+}
+
+#else /* !SHADOWBOX_USE_GATEKEEPER */
+
+/*
+ * Set breakpoints for systemcall monitor.
+ */
+static void sb_set_syscall_monitor_mode(int cpu_id)
+{
+	sb_disable_breakpoints();
+
+	set_debugreg(g_create_task, 0);
+	set_debugreg(g_delete_task, 1);
+	set_debugreg(g_syscall_64, 2);
+	set_debugreg(g_commit_creds, 3);
+
+	sb_enable_breakpoints();
+}
+
+#endif /* !SHADOWBOX_USE_GATEKEEPER */
+
+/*
  * Setup the guest register.
  */
 static void sb_setup_vm_guest_register(struct sb_vm_guest_register*
@@ -3882,12 +4092,12 @@ static void sb_setup_vm_guest_register(struct sb_vm_guest_register*
 	u64 qwLimit0 = 0;
 	u64 qwLimit1 = 0;
 	int cpu_id;
+	unsigned long dr7 = 0;
 #if SHADOWBOX_USE_HW_BREAKPOINT
 	unsigned long dr6;
-#endif
-	unsigned long dr7 = 0;
-	cpu_id = smp_processor_id();
+#endif /* SHADOWBOX_USE_HW_BREAKPOINT */
 
+	cpu_id = smp_processor_id();
 	native_store_gdt(&gdtr);
 	native_store_idt(&idtr);
 
@@ -3898,10 +4108,11 @@ static void sb_setup_vm_guest_register(struct sb_vm_guest_register*
 	sb_vm_guest_register->cr4 = sb_vm_host_register->cr4;
 
 #if SHADOWBOX_USE_HW_BREAKPOINT
-	set_debugreg(sb_get_symbol_address("wake_up_new_task"), 0);
-	set_debugreg(sb_get_symbol_address("proc_flush_task"), 1);
-	set_debugreg(sb_get_symbol_address("ftrace_module_init"), 2);
-	set_debugreg(sb_get_symbol_address("free_module"), 3);
+#if !SHADOWBOX_USE_GATEKEEPER
+	sb_set_process_module_monitor_mode(cpu_id);
+#else /* !SHADOWBOX_USE_GATEKEEPER */
+	sb_set_syscall_monitor_mode(cpu_id);
+#endif /* !SHADOWBOX_USE_GATEKEEPER */
 
 	dr7 = sb_encode_dr7(0, X86_BREAKPOINT_LEN_X, X86_BREAKPOINT_EXECUTE);
 	dr7 |= sb_encode_dr7(1, X86_BREAKPOINT_LEN_X, X86_BREAKPOINT_EXECUTE);
@@ -3913,9 +4124,9 @@ static void sb_setup_vm_guest_register(struct sb_vm_guest_register*
 	get_debugreg(dr6, 6);
 	dr6 &= 0xfffffffffffffff0;
 	set_debugreg(dr6, 6);
-#else
+#else /* SHADOWBOX_USE_HW_BREAKPOINT */
 	sb_vm_guest_register->dr7 = sb_get_dr7();
-#endif
+#endif /* SHADOWBOX_USE_HW_BREAKPOINT */
 	get_debugreg(dr7, 6);
 	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "ORG DB6 = %lx", dr7);
 	get_debugreg(dr7, 7);
@@ -4038,7 +4249,7 @@ static void sb_setup_vm_guest_register(struct sb_vm_guest_register*
 		gdt = (struct desc_struct*)ldt;
 		access = gdt->b >> 8;
 
-		/* type: 4, s: 1, dpl: 2, p: 1; limit: 4, avl: 1, l: 1, d: 1, g: 1, base2: 8 */
+		/* type: 4, s: 1, dpl: 2, p: 1; limit: 4, avl: 1, l: 1, d: 1, g: 1, base2: 8. */
 		sb_vm_guest_register->ldtr_access = access & 0xF0FF;
 	}
 
@@ -4053,7 +4264,7 @@ static void sb_setup_vm_guest_register(struct sb_vm_guest_register*
 		gdt = (struct desc_struct*)tss;
 		access = gdt->b >> 8;
 
-		/* type: 4, s: 1, dpl: 2, p: 1; limit: 4, avl: 1, l: 1, d: 1, g: 1, base2: 8 */
+		/* type: 4, s: 1, dpl: 2, p: 1; limit: 4, avl: 1, l: 1, d: 1, g: 1, base2: 8. */
 		sb_vm_guest_register->tr_access = access & 0xF0FF;
 	}
 
@@ -4111,15 +4322,15 @@ static void sb_setup_vm_control_register(struct sb_vm_control_register*
 
 #if SHADOWBOX_USE_DESC_TABLE
 	sec_flags |= VM_BIT_VM_SEC_PROC_CTRL_DESC_TABLE;
-#endif
+#endif /* SHADOWBOX_USE_DESC_TABLE */
 
 #if SHADOWBOX_USE_EPT
 #if SHADOWBOX_USE_UNRESTRICTED
 	sec_flags |= VM_BIT_VM_SEC_PROC_CTRL_UNREST_GUEST;
-#endif
+#endif /* SHADOWBOX_USE_UNRESTRICTED */
 
 	sec_flags |= VM_BIT_VM_SEC_PROC_CTRL_USE_EPT;
-#endif
+#endif /* SHADOWBOX_USE_EPT */
 
 	if ((sb_rdmsr(MSR_IA32_VMX_PROCBASED_CTLS2) >> 32) &
 		VM_BIT_VM_SEC_PROC_CTRL_ENABLE_INVPCID)
@@ -4148,16 +4359,16 @@ static void sb_setup_vm_control_register(struct sb_vm_control_register*
 			cpu_id);
 		sec_flags |= VM_BIT_VM_SEC_PROC_CTRL_ENABLE_VPID;
 	}
-#endif
+#endif /* SHADOWBOX_USE_VPID */
 
 #if SHADOWBOX_USE_PRE_TIMER
 	sb_vm_control_register->pin_based_ctrl =
 		(sb_rdmsr(MSR_IA32_VMX_TRUE_PINBASED_CTLS) | VM_BIT_VM_PIN_BASED_USE_PRE_TIMER) &
 		0xFFFFFFFF;
-#else
+#else 
 	sb_vm_control_register->pin_based_ctrl = (sb_rdmsr(MSR_IA32_VMX_TRUE_PINBASED_CTLS)) &
 		0xFFFFFFFF;
-#endif
+#endif /* SHADOWBOX_USE_PRE_TIMER */
 
 	sb_vm_control_register->pri_proc_based_ctrl =
 		(sb_rdmsr(MSR_IA32_VMX_TRUE_PROCBASED_CTLS) | VM_BIT_VM_PRI_PROC_CTRL_USE_IO_BITMAP |
@@ -4177,17 +4388,17 @@ static void sb_setup_vm_control_register(struct sb_vm_control_register*
 		VM_BIT_VM_EXIT_CTRL_HOST_ADDR_SIZE | VM_BIT_VM_EXIT_SAVE_DEBUG_CTRL |
 		VM_BIT_VM_EXIT_CTRL_SAVE_PRE_TIMER | VM_BIT_VM_EXIT_CTRL_SAVE_IA32_EFER) &
 		0xFFFFFFFF;
-#else
+#else /* SHADOWBOX_USE_PRE_TIMER */
 	sb_vm_control_register->vm_exti_ctrl_field = (sb_rdmsr(MSR_IA32_VMX_TRUE_EXIT_CTRLS) |
 		VM_BIT_VM_EXIT_CTRL_HOST_ADDR_SIZE | VM_BIT_VM_EXIT_SAVE_DEBUG_CTRL |
 		VM_BIT_VM_EXIT_CTRL_SAVE_IA32_EFER) & 0xFFFFFFFF;
-#endif
+#endif /* SHADOWBOX_USE_PRE_TIMER */
 
 #if SHADOWBOX_USE_HW_BREAKPOINT
 	sb_vm_control_register->except_bitmap = ((u64)0x01 << VM_INT_DEBUG_EXCEPTION);
 #else
 	sb_vm_control_register->except_bitmap = 0x00;
-#endif
+#endif /* SHADOWBOX_USE_HW_BREAKPOINT */
 
 	sb_vm_control_register->io_bitmap_addrA = (u64)(g_io_bitmap_addrA[cpu_id]);
 	sb_vm_control_register->io_bitmap_addrB = (u64)(g_io_bitmap_addrB[cpu_id]);
@@ -4220,7 +4431,7 @@ static void sb_setup_vm_control_register(struct sb_vm_control_register*
 	sb_vm_control_register->ept_ptr =
 		(u64)virt_to_phys((void*)g_ept_info.pml4_page_addr_array[0]) |
 		VM_BIT_EPT_PAGE_WALK_LENGTH_BITMAP | VM_BIT_EPT_MEM_TYPE_WB;
-#endif
+#endif /* SHADOWBOX_USE_EPT */
 
 	sb_vm_control_register->cr4_guest_host_mask = CR4_BIT_VMXE;
 	sb_vm_control_register->cr4_read_shadow = CR4_BIT_VMXE;
@@ -4434,7 +4645,7 @@ static void sb_setup_vmcs(const struct sb_vm_host_register* sb_vm_host_register,
 #if SHADOWBOX_USE_VPID
 	result = sb_write_vmcs(VM_CTRL_VIRTUAL_PROCESS_ID, 1);
 	sb_print_vm_result("    [*] VIRTUAL_PROCESS_ID", result);
-#endif
+#endif /* SHADOWBOX_USE_VPID */
 	result = sb_write_vmcs(VM_CTRL_PIN_BASED_VM_EXE_CTRL,
 		sb_vm_control_register->pin_based_ctrl);
 	sb_print_vm_result("    [*] PIN Based Ctrl", result);
@@ -4714,7 +4925,6 @@ static void sb_dump_vm_control_register(struct sb_vm_control_register* control_r
 	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] MSRBitmap %016lX\n", control_register->msr_bitmap_addr);
 }
 
-
 /*
  * Get base address of the descriptor.
  */
@@ -4821,8 +5031,6 @@ int sb_is_addr_in_ro_area(void* addr)
 		}
 	}
 
-	//sb_printf(LOG_LEVEL_ERROR, LOG_ERROR "%p is not in code area\n", addr);
-
 	return 0;
 }
 
@@ -4919,5 +5127,5 @@ module_init(shadow_box_init);
 module_exit(shadow_box_exit);
 
 MODULE_AUTHOR("Seunghun Han");
-MODULE_LICENSE("Dual MIT/GPL");
+MODULE_LICENSE("GPL v2");
 MODULE_DESCRIPTION("Shadow-box: Lightweight Hypervisor-based Kernel Protector.");

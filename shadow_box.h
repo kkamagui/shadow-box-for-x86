@@ -27,21 +27,32 @@
  * If you have still problems when you run Shadow-box, turn off this feature.
  */
 #define SHADOWBOX_USE_IOMMU				1
+
+/* If you want to use Gatekeeper, trun on this feature. */
+#define SHADOWBOX_USE_GATEKEEPER		1
+
 /* If you want to use tboot, turn on this feature. */
 #define SHADOWBOX_USE_TBOOT				0
+
+/* These features should be set. */
+#define SHADOWBOX_USE_EPT				0
+#define SHADOWBOX_USE_UNRESTRICTED		1
+#define SHADOWBOX_USE_HW_BREAKPOINT		1
+#define SHADOWBOX_USE_DESC_TABLE		1
+#define SHADOWBOX_USE_PRE_SYMBOL		1
+
+/* If Gatekeeper is enabled, periodic check is not needed. */
+#if SHADOWBOX_USE_GATEKEEPER
+#define SHADOWBOX_USE_PRE_TIMER			0
+#else
+#define SHADOWBOX_USE_PRE_TIMER			1
+#endif
+
 /*
  * Kernel patch workaround is experimental feature. If you want to use code
  * patch workaround, turn on this feature.
  */
 #define SHADOWBOX_USE_WORKAROUND		0
-
-/* These features should be set. */
-#define SHADOWBOX_USE_EPT				1
-#define SHADOWBOX_USE_UNRESTRICTED		1
-#define SHADOWBOX_USE_HW_BREAKPOINT		1
-#define SHADOWBOX_USE_DESC_TABLE		1
-#define SHADOWBOX_USE_PRE_TIMER			1
-#define SHADOWBOX_USE_PRE_SYMBOL		1
 #define SHADOWBOX_USE_VPID				0
 
 /*
@@ -100,7 +111,7 @@
 #define MAX_STACK_SIZE						0x800000
 
 #define WORK_AROUND_MAX_COUNT				30
-#define SYMBOL_MAX_COUNT					25
+#define SYMBOL_MAX_COUNT					30
 
 #define VMCS_SIZE							0x2000
 #define IO_BITMAP_SIZE						0x1000
@@ -401,7 +412,7 @@
 #define VM_EXIT_INT_TYPE_HW							3
 #define VM_EXIT_INT_TYPE_SW							6
 
-/* Exception types. */
+/* Exception vectors. */
 #define VM_INT_DIVIDE_ERROR							0
 #define VM_INT_DEBUG_EXCEPTION						1
 #define VM_INT_NMI									2
@@ -505,10 +516,12 @@
 #define REG_NUM_R15											15
 
 /* Debug register (hardware breakpoint) flags. */
-#define DR_BIT_ADD_TASK							(0x01 << 0)
-#define DR_BIT_DEL_TASK							(0x01 << 1)
-#define DR_BIT_INSMOD							(0x01 << 2)
-#define DR_BIT_RMMOD							(0x01 << 3)
+#define DR_BIT_CREATE_TASK						(0x01 << 0)
+#define DR_BIT_DELETE_TASK						(0x01 << 1)
+#define DR_BIT_CREATE_MODULE					(0x01 << 2)
+#define DR_BIT_DELETE_MODULE					(0x01 << 3)
+#define DR_BIT_SYSCALL_64						(0x01 << 2)
+#define DR_BIT_COMMIT_CREDS						(0x01 << 3)
 
 /* CPUID flags. */
 #define CPUID_1_ECX_VMX							((u64)0x01 << 5)
@@ -789,6 +802,7 @@ extern volatile int g_allow_shadow_box_hide;
 /*
  * Functions.
  */
+extern int vprintk_deferred(const char *fmt, va_list args);
 void sb_printf(int level, char* format, ...);
 void sb_error_log(int error_code);
 void sb_hide_range(u64 start_addr, u64 end_addr, int vmalloc_type);

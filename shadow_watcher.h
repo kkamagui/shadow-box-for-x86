@@ -32,6 +32,9 @@ struct sb_task_node
 	pid_t tgid;
 	struct task_struct* task;
 	char comm[TASK_COMM_LEN];
+	struct cred cred;
+	int syscall_number;
+	int need_exit;
 };
 
 /* Module information structure. */
@@ -68,8 +71,15 @@ void sb_sw_callback_vm_timer(int cpu_id);
 void sb_sw_callback_task_switch(int cpu_id);
 void sb_sw_callback_add_task(int cpu_id, struct sb_vm_exit_guest_register* context);
 void sb_sw_callback_del_task(int cpu_id, struct sb_vm_exit_guest_register* context);
+#if !SHADOWBOX_USE_GATEKEEPER
 void sb_sw_callback_insmod(int cpu_id);
 void sb_sw_callback_rmmod(int cpu_id, struct sb_vm_exit_guest_register* context);
+#else
+void sb_sw_callback_update_cred(int cpu_id, struct task_struct* task, struct cred* new);
+int sb_sw_callback_check_cred_update_syscall(int cpu_id, struct task_struct* task,
+	int syscall_number);
+#endif
 void sb_protect_shadow_watcher_data(void);
+void sb_sync_sw_page(u64 addr, u64 size);
 
 #endif
