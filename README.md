@@ -9,7 +9,14 @@
                 Lightweight Hypervisor-Based Kernel Protector
 ```
 
+---
+# 0. About Gatekeeper
+## Gatekeeper is based on Shadow-box.
+## If you find Gatekeeper, go to [Gatekeeper branch](https://github.com/kkamagui/shadow-box-for-x86/tree/gatekeeper).
+---
+
 # 1. Notice
+
 Shadow-box v2 (for ARM) is a next generation of Shadow-box v1 (for x86). If you want to know about Shadow-box for ARM, please visit [Shadow-box for ARM project](https://github.com/kkamagui/shadow-box-for-arm).
 
 Major changes are as followed:
@@ -18,12 +25,15 @@ Major changes are as followed:
 
 # 1.1. Presentations and Papers
 Shadow-box is a lightweight and practical kernel protector, and it was introduced at security conferences below.
+ - Gatekeeper: [beVX 2018](https://www.beyondsecurity.com/bevxcon/speakers.html#SeunghunHan)
+ - [Black Hat Asia 2018](https://www.blackhat.com/asia-18/briefings.html#shadow-box-v2-the-practical-and-omnipotent-sandbox-for-arm)
  - [Black Hat Asia 2017](https://www.blackhat.com/asia-17/briefings.html#myth-and-truth-about-hypervisor-based-kernel-protector-the-reason-why-you-need-shadow-box) and [Black Hat Asia Arsenal 2017](https://www.blackhat.com/asia-17/arsenal.html#shadow-box-lightweight-hypervisor-based-kernel-protector)
  - [HITBSecConf 2017](http://conference.hitb.org/hitbsecconf2017ams/sessions/shadowbox-the-practical-and-omnipotent-sandbox/)
 
 You can watch the demo videos below.
- - [Demo 1](https://youtu.be/3_cFDVHWCXA): It shows that if you use only kernel-level protection mechanism such as page write-protect, rootkits can neutralize it. 
- - [Demo 2](https://youtu.be/s7iZYg4vP4E): It shows that if you use kernel-level protection mechanism with Shadow-box, then rootkits cannot neutralize it and cannot work. 
+ - [Gatekeeper Demo](https://youtu.be/gjpxeKlzA9s): It shows that Gatekeeper can detect and prevent local privilege escalation exploits.
+ - [Shadow-box Demo 1](https://youtu.be/3_cFDVHWCXA): It shows that rootkits can neutralize kernel protection mechanism. 
+ - [Shadow-box Demo 2](https://youtu.be/s7iZYg4vP4E): It shows that Shadow-box can prevent kernel from rootkits.
 
 [![Shadow-Box](https://img.youtube.com/vi/3_cFDVHWCXA/0.jpg)](https://www.youtube.com/watch?v=3_cFDVHWCXA)
 [![Shadow-Box](https://img.youtube.com/vi/s7iZYg4vP4E/0.jpg)](https://www.youtube.com/watch?v=s7iZYg4vP4E)
@@ -44,7 +54,7 @@ The security monitor, Shadow-Watcher, places event monitors on static kernel ele
 Shadow-box manipulates address translations from the guest physical address to the host physical address in order to exclude unauthorized accesses to the host and the hypervisor spaces. In that way, Shadow-box can properly introspect the guest operating system and mediate all accesses, even when the operating system is compromised.
 
 # 2.1. Architecture of Shadow-Box
-We explain how we designed the Light-box and the Shadow-watcher. It is designed to support a lightweight and practical security monitoring framework using virtualization technologies.
+Shadow-box is a lightweight and practical security monitoring framework using virtualization technologies.
 
 <center> <img src="document/images/architecture.png" width="500"> </center>
 
