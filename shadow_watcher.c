@@ -651,20 +651,10 @@ void sb_sw_callback_rmmod(int cpu_id, struct sb_vm_exit_guest_register* context)
 	}
 	else
 	{
-		if (mod == THIS_MODULE)
-		{
-			/* Shadow-box should not be unloaded. */
-			sb_printf(LOG_LEVEL_ERROR, LOG_ERROR "VM [%d] Process try to unload, "
-				"Shadow-box. current PID=%d PPID=%d process name=%s\n", cpu_id,
-				current->pid, current->parent->pid, current->comm);
-		}
-		else
-		{
-			/* Shadow-box-helper should not be unloaded. */
-			sb_printf(LOG_LEVEL_ERROR, LOG_ERROR "VM [%d] Process try to unload, "
-				"Shado-box-helper. current PID=%d PPID=%d process name=%s\n", 
-				cpu_id, current->pid, current->parent->pid, current->comm);
-		}
+		/* Shadow-box should not be unloaded. */
+		sb_printf(LOG_LEVEL_ERROR, LOG_ERROR "VM [%d] Process try to unload, "
+			"Shadow-box. current PID=%d PPID=%d process name=%s\n", cpu_id,
+			current->pid, current->parent->pid, current->comm);
 
 		sb_insert_exception_to_vm();
 	}
