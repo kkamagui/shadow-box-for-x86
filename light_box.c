@@ -801,11 +801,11 @@ void vm_dump_memory(u8* addr, int size)
 	for (j = 0 ; j < size / 16 ; j++)
 	{
 		memset(buffer, 0, sizeof(buffer));
-		sprintf(buffer, "[%04X] ", j * 16);
+		snprintf(buffer, sizeof(buffer), "[%04X] ", j * 16);
 		for (i = 0 ; i < 16 ; i++)
 		{
-			sprintf(temp, "%02X ", addr[j * 16 + i]);
-			strcat(buffer, temp);
+			snprintf(temp, sizeof(temp), "%02X ", addr[j * 16 + i]);
+			strlcat(buffer, temp, sizeof(buffer));
 		}
 
 		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "%s\n", buffer);
@@ -961,6 +961,10 @@ static int sb_setup_memory_pool(void)
 		{
 			goto ERROR;
 		}
+#if SHADOWBOX_USE_EPT
+		sb_hide_range((u64)g_memory_pool.pool[i], (u64)g_memory_pool.pool[i] + VAL_4KB,
+			ALLOC_KMALLOC);
+#endif /* SHADOWBOX_USE_EPT */
 	}
 
 	g_memory_pool.pop_index = 0;
@@ -974,6 +978,10 @@ ERROR:
 		{
 			if (g_memory_pool.pool[i] != 0)
 			{
+#if SHADOWBOX_USE_EPT
+				sb_set_all_access_range((u64)g_memory_pool.pool[i], (u64)g_memory_pool.pool[i] +
+					VAL_4KB, ALLOC_KMALLOC);
+#endif /* SHADOWBOX_USE_EPT */
 				kfree((void*)g_memory_pool.pool[i]);
 			}
 		}
@@ -1022,15 +1030,15 @@ static int sb_check_gdtr(int cpu_id)
 	u64 address;
 	u64 size;
 
-	sb_read_vmcs(VM_GUEST_GDTR_BASE, &address);
-	sb_read_vmcs(VM_GUEST_GDTR_LIMIT, &size);
-	gdtr.address = address;
-	gdtr.size = (u16)size;
-
 	if ((sb_is_system_shutdowning() == 1))
 	{
 		return 0;
 	}
+
+	sb_read_vmcs(VM_GUEST_GDTR_BASE, &address);
+	sb_read_vmcs(VM_GUEST_GDTR_LIMIT, &size);
+	gdtr.address = address;
+	gdtr.size = (u16)size;
 
 	if (gdtr.address != g_gdtr_array[cpu_id].address)
 	{
