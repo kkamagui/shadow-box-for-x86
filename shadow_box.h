@@ -44,6 +44,9 @@
 #define SHADOWBOX_USE_PRE_SYMBOL		1
 #define SHADOWBOX_USE_VPID				0
 
+/* These features are options. */
+#define SHADOWBOX_USE_HIDE_MODULE		0
+
 /*
  * Debug macros.
  *

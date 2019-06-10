@@ -485,11 +485,13 @@ static int __init shadow_box_init(void)
 		return -1;
 	}
 
+#if SHADOWBOX_USE_HIDE_MODULE
 	/* Hiding Shadow-box module. */
 	mutex_lock(&module_mutex);
 	list_del(&THIS_MODULE->list);
 	kobject_del(&THIS_MODULE->mkobj.kobj);
 	mutex_unlock(&module_mutex);
+#endif /*SHADOWBOX_USE_HIDE_MODULE */
 
 	sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "Execution Complete\n");
 	sb_error_log(ERROR_SUCCESS);

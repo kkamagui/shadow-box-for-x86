@@ -898,10 +898,12 @@ static void sb_copy_module_list_to_sw_module_manager(void)
 	{
 		mod = container_of(pos, struct module, list);
 
+#if SHADOWBOX_USE_HIDE_MODULE
 		if (mod == THIS_MODULE)
 		{
 			continue;
 		}
+#endif /* SHADOWBOX_USE_HIDE_MODULE */
 
 		/* Add module with protect option. */
 		sb_add_module_to_sw_module_manager(mod, 1);
