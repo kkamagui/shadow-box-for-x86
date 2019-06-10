@@ -572,6 +572,11 @@
 #define VM_SERVICE_SHUTDOWN						10000
 #define VM_SERVICE_SHUTDOWN_THIS_CORE			10001
 
+/* Define for kernel version workaround. */
+#ifndef PGD_ALLOCATION_ORDER
+#define PGD_ALLOCATION_ORDER 					0
+#endif
+
 /*
  * Structures.
  */
