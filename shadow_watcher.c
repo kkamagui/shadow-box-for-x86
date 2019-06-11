@@ -156,17 +156,20 @@ void sb_protect_shadow_watcher_data(void)
 /*
  * Initialize Shadow-watcher.
  */
-void sb_init_shadow_watcher(void)
+void sb_init_shadow_watcher(int reinitialize)
 {
 	spin_lock_init(&g_time_lock);
 
 	sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "Framework Initailize\n");
 
-	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] Check task list\n");
-	sb_copy_task_list_to_sw_task_manager();
+	if (reinitialize == 0)
+	{
+		sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] Check task list\n");
+		sb_copy_task_list_to_sw_task_manager();
 
-	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] Check module list\n");
-	sb_copy_module_list_to_sw_module_manager();
+		sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] Check module list\n");
+		sb_copy_module_list_to_sw_module_manager();
+	}
 
 	sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "    [*] Task count %d\n", g_task_count);
 	sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "    [*] Module count %d\n", g_module_count);
@@ -560,7 +563,7 @@ void sb_sw_callback_task_switch(int cpu_id)
  *
  * The module is in module list already when this function is called.
  */
-void sb_sw_callback_insmod(int cpu_id)
+void sb_sw_callback_insmod(int cpu_id, struct sb_vm_exit_guest_register* context)
 {
 	struct module *mod;
 	struct list_head* mod_head_node;
@@ -580,8 +583,9 @@ void sb_sw_callback_insmod(int cpu_id)
 	}
 
 	/* Get last module information and synchronize before introspection. */
-	mod = list_entry((mod_head_node->next), struct module, list);
+	mod = (struct module*)context->rdi;
 	sb_sync_sw_page((u64)mod, sizeof(struct module));
+	sb_sync_sw_page((u64)current, sizeof(struct task_struct));
 
 	sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] Kernel module is loaded, "
 		"current PID=%d PPID=%d process name=%s module=%s\n", cpu_id,

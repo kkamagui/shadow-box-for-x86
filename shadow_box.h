@@ -16,6 +16,8 @@
 /*
  * Macros.
  */
+#define SHADOWBOX_VERSION				"2.3.0"
+
 /* Feature list of Shadow-box. */
 /*
  * IOMMU is experimental feature. If you want to enable this feature, you should
@@ -42,6 +44,7 @@
 #define SHADOWBOX_USE_DESC_TABLE		1
 #define SHADOWBOX_USE_PRE_TIMER			1
 #define SHADOWBOX_USE_PRE_SYMBOL		1
+#define SHADOWBOX_USE_SLEEP				1
 #define SHADOWBOX_USE_VPID				0
 
 /* These features are options. */
@@ -584,6 +587,15 @@
 #ifndef PGD_ALLOCATION_ORDER
 #define PGD_ALLOCATION_ORDER 					0
 #endif
+
+/* Define Shadow-box hide modes. */
+#define PROTECT_MODE_HIDE						0
+#define PROTECT_MODE_LOCK						1
+
+/* Define Shadow-box start modes. */
+#define START_MODE_INITIALIZE					0
+#define START_MODE_REINITIALIZE					1
+
 
 /*
  * Structures.

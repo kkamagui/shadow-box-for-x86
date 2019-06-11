@@ -63,12 +63,12 @@ struct sb_module_manager
  * Functions.
  */
 int sb_prepare_shadow_watcher(void);
-void sb_init_shadow_watcher(void);
+void sb_init_shadow_watcher(int reinitialize);
 void sb_sw_callback_vm_timer(int cpu_id);
 void sb_sw_callback_task_switch(int cpu_id);
 void sb_sw_callback_add_task(int cpu_id, struct sb_vm_exit_guest_register* context);
 void sb_sw_callback_del_task(int cpu_id, struct sb_vm_exit_guest_register* context);
-void sb_sw_callback_insmod(int cpu_id);
+void sb_sw_callback_insmod(int cpu_id, struct sb_vm_exit_guest_register* context);
 void sb_sw_callback_rmmod(int cpu_id, struct sb_vm_exit_guest_register* context);
 void sb_protect_shadow_watcher_data(void);
 

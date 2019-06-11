@@ -42,6 +42,7 @@
 #include <linux/version.h>
 #include <linux/kfifo.h>
 #include <asm/uaccess.h>
+#include <linux/suspend.h>
 #include "asm.h"
 #include "shadow_box.h"
 #include "shadow_watcher.h"
@@ -123,6 +124,7 @@ u64 g_dump_count[MAX_VM_EXIT_DUMP_COUNT] = {0, };
 /*
  * Static functions.
  */
+static int sb_start(int reinitialize);
 static int sb_get_kernel_version_index(void);
 static int sb_is_kaslr_working(void);
 static int sb_relocate_symbol(void);
@@ -151,14 +153,14 @@ static u64 sb_get_desc_base(u64 qwOffset);
 static u64 sb_get_desc_access(u64 qwOffset);
 static void sb_remove_int_exception_from_vm(int vector);
 static void sb_print_vm_result(const char* pcData, int iResult);
-static void sb_disable_and_change_machine_check_timer(void);
+static void sb_disable_and_change_machine_check_timer(int reinitialize);
 static int sb_vm_thread(void* pvArgument);
-static void sb_dup_page_table_for_host(void);
+static void sb_dup_page_table_for_host(int reinitialize);
 static void sb_protect_kernel_ro_area(void);
-static void sb_protect_module_list_ro_area(void);
+static void sb_protect_module_list_ro_area(int reinitialize);
 static void sb_protect_vmcs(void);
 static void sb_protect_gdt(int cpu_id);
-static void sb_protect_shadow_box_module(void);
+static void sb_protect_shadow_box_module(int protect_mode);
 static void sb_advance_vm_guest_rip(void);
 static u64 sb_calc_vm_pre_timer_value(void);
 static unsigned long sb_encode_dr7(int dr_num, unsigned int len, unsigned int type);
@@ -215,7 +217,12 @@ static struct notifier_block* g_vm_reboot_nb_ptr = NULL;
 static struct notifier_block g_vm_reboot_nb = {
 	.notifier_call = sb_system_reboot_notify,
 };
-#endif /* SHADOWBOX_USE_SHUTDOWN*/
+#endif /* SHADOWBOX_USE_SHUTDOWN */
+
+#if SHADOWBOX_USE_SLEEP
+static int sb_system_sleep_notify(struct notifier_block* nb, unsigned long val, void* unused);
+static struct notifier_block* g_sb_sleep_nb_ptr = NULL;
+#endif /* SHADOWBOX_USE_SLEEP */
 
 /*
  * Start function of Shadow-box module
@@ -224,7 +231,6 @@ static int __init shadow_box_init(void)
 {
 	int cpu_count;
 	int cpu_id;
-	int i;
 	struct new_utsname* name;
 	u32 eax, ebx, ecx, edx;
 	u64 msr;
@@ -321,6 +327,14 @@ static int __init shadow_box_init(void)
 	atomic_set(&(g_share_context->shutdown_flag), 0);
 #endif /* SHADOWBOX_USE_SHUTDOWN */
 
+#if SHADOWBOX_USE_SLEEP
+	/* Add callback function for checking system sleep. */
+	g_sb_sleep_nb_ptr = kmalloc(sizeof(struct notifier_block), GFP_KERNEL);
+	g_sb_sleep_nb_ptr->notifier_call = sb_system_sleep_notify;
+	g_sb_sleep_nb_ptr->priority = 0;
+	register_pm_notifier(g_sb_sleep_nb_ptr);
+#endif /* SHADOWBOX_USE_SLEEP */
+
 	/*
 	 * Check total RAM size.
 	 * To cover system reserved area (3GB ~ 4GB), if system has under 4GB RAM,
@@ -409,6 +423,35 @@ static int __init shadow_box_init(void)
 
 	g_tasklist_lock = (rwlock_t*) sb_get_symbol_address("tasklist_lock");
 
+	/* Start Shadow-box. */
+	if (sb_start(START_MODE_INITIALIZE) == 0)
+	{
+		return 0;
+	}
+
+ERROR_HANDLE:
+	sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "Execution Fail\n");
+
+	sb_free_ept_pages();
+	sb_free_iommu_pages();
+	return -1;
+}
+
+/*
+ * Start Shadow-Box.
+ */
+static int sb_start(int reinitialize)
+{
+	int cpu_count;
+	int cpu_id;
+	int i;
+
+	cpu_count = num_online_cpus();
+	cpu_id = smp_processor_id();
+	g_thread_result = 0;
+	g_need_init_in_secure.counter = 1;
+	g_allow_shadow_box_hide = 0;
+
 	atomic_set(&g_thread_run_flags, cpu_count);
 	atomic_set(&g_thread_entry_count, cpu_count);
 	atomic_set(&g_sync_flags, cpu_count);
@@ -425,7 +468,7 @@ static int __init shadow_box_init(void)
 	for (i = 0 ; i < cpu_count ; i++)
 	{
 		g_vm_start_thread_id[i] = (struct task_struct *)kthread_create_on_node(
-			sb_vm_thread, NULL, cpu_to_node(i), "vm_thread");
+			sb_vm_thread, (void*)(u64)reinitialize, cpu_to_node(i), "vm_thread");
 		if (g_vm_start_thread_id[i] != NULL)
 		{
 			kthread_bind(g_vm_start_thread_id[i], i);
@@ -481,7 +524,8 @@ static int __init shadow_box_init(void)
 
 	if (g_thread_result != 0)
 	{
-		sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "Execution Fail\n");
+		sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "Execution Fail [%d]\n", g_thread_result);
+		sb_error_log(ERROR_NOT_START);
 		return -1;
 	}
 
@@ -501,13 +545,6 @@ static int __init shadow_box_init(void)
 	g_allow_shadow_box_hide = 1;
 
 	return 0;
-
-ERROR_HANDLE:
-	sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "Execution Fail\n");
-
-	sb_free_ept_pages();
-	sb_free_iommu_pages();
-	return -1;
 }
 
 /*
@@ -537,7 +574,7 @@ static void sb_print_shadow_box_logo(void)
 	sb_printf(LOG_LEVEL_ERROR, "███████║██║  ██║██║  ██║██████╔╝╚██████╔╝╚███╔███╔╝      ██████╔╝╚██████╔╝██╔╝ ██╗\n");
 	sb_printf(LOG_LEVEL_ERROR, "╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝  ╚═════╝  ╚══╝╚══╝       ╚═════╝  ╚═════╝ ╚═╝  ╚═╝\n");
 	sb_printf(LOG_LEVEL_ERROR, "     \n");
-	sb_printf(LOG_LEVEL_ERROR, "              Lightweight Hypervisor-Based Kernel Protector v2.0.0\n");
+	sb_printf(LOG_LEVEL_ERROR, "              Lightweight Hypervisor-Based Kernel Protector v%s\n", SHADOWBOX_VERSION);
 	sb_printf(LOG_LEVEL_ERROR, "     \n");
 }
 
@@ -546,12 +583,12 @@ static void sb_print_shadow_box_logo(void)
  */
 static int sb_is_system_shutdowning(void)
 {
-	int cpu_id;
-
-	cpu_id = smp_processor_id();
 	if ((system_state == SYSTEM_RUNNING) || (system_state == SYSTEM_BOOTING))
 	{
-		return 0;
+		if (acpi_target_system_state() < ACPI_STATE_S3)
+		{
+			return 0;
+		}
 	}
 
 	return 1;
@@ -1174,11 +1211,11 @@ void sb_hide_range(u64 start_addr, u64 end_addr, int alloc_type)
 
 #if SHADOWBOX_USE_EPT
 		sb_set_ept_hide_page(phy_addr);
-#endif
+#endif /* SHADOWBOX_USE_EPT */
 
 #if SHADOWBOX_USE_IOMMU
 		sb_set_iommu_hide_page(phy_addr);
-#endif
+#endif /* SHADOWBOX_USE_IOMMU */
 	}
 }
 
@@ -1215,7 +1252,7 @@ static void sb_protect_kernel_ro_area(void)
 
 #if SHADOWBOX_USE_EPT
 		sb_lock_range(start_log_addr, end_log_addr, ALLOC_KMALLOC);
-#endif
+#endif /* SHADOWBOX_USE_EPT */
 		sb_add_ro_area(start_log_addr, end_log_addr, RO_KERNEL);
 
 		sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] %d Pages\n",
@@ -1257,7 +1294,7 @@ static void sb_add_and_protect_module_ro(struct module* mod)
 	mod_core_size = (u64)(mod->core_layout.size);
 	mod_core_text_size = (u64)(mod->core_layout.text_size);
 	mod_core_ro_size = (u64)(mod->core_layout.ro_size);
-#endif
+#endif /* LINUX_VERSION_CODE */
 
 	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] mod:%p [%s]", mod, mod->name);
 	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] init:0x%p module_init:0x%08lX"
@@ -1272,14 +1309,14 @@ static void sb_add_and_protect_module_ro(struct module* mod)
 
 #if SHADOWBOX_USE_EPT
 	sb_lock_range(mod_core_base, mod_core_base + mod_core_ro_size, ALLOC_VMALLOC);
-#endif
+#endif /* SHADOWBOX_USE_EPT */
 	sb_add_ro_area(mod_core_base, mod_core_base + mod_core_ro_size, RO_MODULE);
 }
 
 /*
  * Protect static kernel object of modules using sb_add_and_protect_module_ro.
  */
-static void sb_protect_module_list_ro_area(void)
+static void sb_protect_module_list_ro_area(int reinitialize)
 {
 	struct module *mod;
 	struct list_head *pos, *node;
@@ -1288,6 +1325,13 @@ static void sb_protect_module_list_ro_area(void)
 
 	sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "Protect Module Code Area\n");
 	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] Setup RO Area\n");
+
+	/* If reinitialization, Shadow-box module should be unhide. */
+	if (reinitialize == 1)
+	{
+		sb_protect_shadow_box_module(PROTECT_MODE_LOCK);
+		return ;
+	}
 
 	g_shadow_box_module = THIS_MODULE;
 	mod = THIS_MODULE;
@@ -1311,7 +1355,7 @@ static void sb_protect_module_list_ro_area(void)
 		mod_core_size = mod->core_size;
 #else
 		mod_core_size = mod->core_layout.size;
-#endif
+#endif /* LINUX_VERSION_CODE */
 		if (mod_core_size == 0)
 		{
 			continue;
@@ -1326,7 +1370,7 @@ static void sb_protect_module_list_ro_area(void)
 /*
  * Protect Shadow-box module
  */
-static void sb_protect_shadow_box_module(void)
+static void sb_protect_shadow_box_module(int protect_mode)
 {
 	struct module *mod;
 	u64 mod_init_base;
@@ -1349,7 +1393,7 @@ static void sb_protect_shadow_box_module(void)
 	mod_core_size = (u64)mod->core_size;
 	mod_core_text_size = (u64)mod->core_text_size;
 	mod_core_ro_size = (u64)mod->core_ro_size;
-#else
+#else /* LINUX_VERSION_CODE */
 	mod_init_base = (u64)(mod->init_layout.base);
 	mod_init_size = (u64)(mod->init_layout.size);
 	mod_init_text_size = (u64)(mod->init_layout.text_size);
@@ -1358,7 +1402,7 @@ static void sb_protect_shadow_box_module(void)
 	mod_core_size = (u64)(mod->core_layout.size);
 	mod_core_text_size = (u64)(mod->core_layout.text_size);
 	mod_core_ro_size = (u64)(mod->core_layout.ro_size);
-#endif
+#endif /* LINUX_VERSION_CODE */
 
 	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "Protect Shadow-Box Area\n");
 	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] mod:%p [%s], size of module"
@@ -1380,10 +1424,19 @@ static void sb_protect_shadow_box_module(void)
 	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] sb_system_reboot_notify:%016lX,"
 		" g_vm_reboot_nb:%016lX", (u64)sb_system_reboot_notify,
 		(u64)g_vm_reboot_nb_ptr);
-#endif
+#endif /* SHADOWBOX_USE_SHUTDOWN */
 	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "    [*] Complete\n");
 
-	sb_hide_range(mod_core_base, mod_core_base + mod_core_size, ALLOC_VMALLOC);
+#if SHADOWBOX_USE_EPT
+	if (protect_mode == PROTECT_MODE_HIDE)
+	{
+		sb_hide_range(mod_core_base, mod_core_base + mod_core_size, ALLOC_VMALLOC);
+	}
+	else
+	{
+		sb_lock_range(mod_core_base, mod_core_base + mod_core_ro_size, ALLOC_VMALLOC);
+		sb_set_all_access_range(mod_core_base + mod_core_ro_size, mod_core_base + mod_core_size, ALLOC_VMALLOC);
+	}
 
 	/*
 	 * Module structure is included in module core range, so give full access
@@ -1391,6 +1444,7 @@ static void sb_protect_shadow_box_module(void)
 	 */
 	sb_set_all_access_range((u64)g_shadow_box_module, (u64)g_shadow_box_module +
 		sizeof(struct module), ALLOC_VMALLOC);
+#endif /* SHADOWBOX_USE_EPT */
 }
 
 /*
@@ -1410,7 +1464,7 @@ static void sb_protect_gdt(int cpu_id)
 
 #if SHADOWBOX_USE_EPT
 	sb_lock_range(idtr.address, (idtr.address + 0xFFF) & MASK_PAGEADDR, ALLOC_VMALLOC);
-#endif
+#endif /* SHADOWBOX_USE_EPT */
 }
 
 /*
@@ -1447,9 +1501,11 @@ void vm_expand_page_table_entry(u64 phy_table_addr, u64 start_entry_and_flags,
 
 	log_addr = (struct sb_pagetable*)phys_to_virt((u64)phy_table_addr & ~(MASK_PAGEFLAG));
 
+#if SHADOWBOX_USE_PAGE_DEBUG
 	sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "Expand page table entry. Start entry "
 		"%016lX, size %016lX, phy table %016lX\n", start_entry_and_flags,
 		entry_size, phy_table_addr);
+#endif /* SHADOWBOX_USE_PAGE_DEBUG */
 
 	for (i = 0 ; i < 512 ; i++)
 	{
@@ -1933,7 +1989,7 @@ EXIT:
  * ffffffff80000000 - ffffffffa0000000 (=512 MB)  kernel text mapping, from phys 0
  * ffffffffa0000000 - fffffffffff00000 (=1536 MB) module mapping space
  */
-static void sb_dup_page_table_for_host(void)
+static void sb_dup_page_table_for_host(int reinitialize)
 {
 	struct sb_pagetable* org_pml4;
 	struct sb_pagetable* org_pdpte_pd;
@@ -1948,6 +2004,11 @@ static void sb_dup_page_table_for_host(void)
 	int k;
 	struct mm_struct* swapper_mm;
 	u64 cur_addr;
+
+	if (reinitialize != 0)
+	{
+		return ;
+	}
 
 	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "Duplicate page tables\n");
 
@@ -2111,12 +2172,11 @@ void sb_hang(char* string)
 /*
  * Disable machine check exception and change the check interval.
  */
-static void sb_disable_and_change_machine_check_timer(void)
+static void sb_disable_and_change_machine_check_timer(int reinitialize)
 {
 	typedef void (*mce_timer_delete_all) (void);
 	typedef void (*mce_cpu_restart) (void *data);
 	u64 cr4;
-
 	unsigned long *check_interval;
 	mce_timer_delete_all delete_timer_fp;
 	mce_cpu_restart restart_cpu_fp;
@@ -2126,6 +2186,11 @@ static void sb_disable_and_change_machine_check_timer(void)
 	cr4 &= ~(CR4_BIT_MCE);
 	sb_set_cr4(cr4);
 	disable_irq(VM_INT_MACHINE_CHECK);
+
+	if (reinitialize != 0)
+	{
+		return ;
+	}
 
 	/* Change MCE polling timer. */
 	if (smp_processor_id() == 0)
@@ -2155,11 +2220,13 @@ static int sb_vm_thread(void* argument)
 	unsigned long irqs;
 	int result;
 	int cpu_id;
+	int reinitialize;
 
 	cpu_id = smp_processor_id();
+	reinitialize = (u64) argument;
 
 	/* Disable MCE exception. */
-	sb_disable_and_change_machine_check_timer();
+	sb_disable_and_change_machine_check_timer(reinitialize);
 
 	/* Synchronize processors. */
 	atomic_dec(&g_thread_entry_count);
@@ -2189,7 +2256,7 @@ static int sb_vm_thread(void* argument)
 	if (cpu_id == 0)
 	{
 		mutex_lock(&module_mutex);
-		sb_protect_module_list_ro_area();
+		sb_protect_module_list_ro_area(reinitialize);
 
 		atomic_set(&g_mutex_lock_flags, 1);
 		sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "VM [%d] module mutex lock complete\n",
@@ -2225,7 +2292,7 @@ static int sb_vm_thread(void* argument)
 			cpu_id);
 
 		/* Duplicate page table for the host and Shadow-box. */
-		sb_dup_page_table_for_host();
+		sb_dup_page_table_for_host(reinitialize);
 
 		sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "VM [%d] Dup talbe Initialize Complete\n",
 			cpu_id);
@@ -2237,7 +2304,7 @@ static int sb_vm_thread(void* argument)
 			cpu_id);
 
 		/* Initialize Shadow-watcher. */
-		sb_init_shadow_watcher();
+		sb_init_shadow_watcher(reinitialize);
 
 		sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "VM [%d] Framework Initialize Complete \n",
 			cpu_id);
@@ -2613,7 +2680,7 @@ void sb_vm_exit_callback(struct sb_vm_exit_guest_register* guest_context)
 		{
 #if SHADOWBOX_USE_EPT
 			/* Hide Shadow-box module here after all vm thread are terminated */
-			sb_protect_shadow_box_module();
+			sb_protect_shadow_box_module(PROTECT_MODE_HIDE);
 			sb_protect_shadow_watcher_data();
 #endif /* SHADOWBOX_USE_EPT */
 
@@ -2869,7 +2936,7 @@ static void sb_vm_exit_callback_int(int cpu_id, unsigned long dr6, struct
 		/* Load module case. */
 		if (dr6 & DR_BIT_INSMOD)
 		{
-			sb_sw_callback_insmod(cpu_id);
+			sb_sw_callback_insmod(cpu_id, guest_context);
 		}
 
 		/* Unload module case. */
@@ -3250,7 +3317,7 @@ static void sb_vm_exit_callback_vmcall(int cpu_id, struct sb_vm_exit_guest_regis
 	if ((cs_selector & MASK_GDT_ACCESS) != 0)
 	{
 		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "VM [%d] VMCALL index[%ld] is not allowed\n",
-		cpu_id);
+			cpu_id);
 		sb_insert_exception_to_vm();
 		sb_advance_vm_guest_rip();
 		return ;
@@ -3443,6 +3510,31 @@ static int sb_vm_thread_shutdown(void* argument)
 
 #endif /* SHADOWBOX_USE_SHUTDOWN */
 
+#if SHADOWBOX_USE_SLEEP
+/*
+ *	Process system sleep notification event.
+ */
+static int sb_system_sleep_notify(struct notifier_block* nb, unsigned long val,
+	void* unused)
+{
+	int cpu_id;
+
+	cpu_id = smp_processor_id();
+
+	switch(val)
+	{
+		case PM_POST_HIBERNATION:
+		case PM_POST_SUSPEND:
+			sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "VM [%d] Start restoring from sleep\n", cpu_id);
+			/* Start with reinitialize flag. */
+			sb_start(START_MODE_REINITIALIZE);
+			break;
+	}
+
+	return NOTIFY_OK;
+}
+#endif /* SHADOWBOX_USE_SLEEP */
+
 /*
  * Insert exception to the guest.
  */
@@ -3451,7 +3543,6 @@ void sb_insert_exception_to_vm(void)
 	u64 info_field;
 	sb_read_vmcs(VM_CTRL_VM_ENTRY_INT_INFO_FIELD, &info_field);
 
-	//info_field = VM_BIT_VM_ENTRY_INT_INFO_GP;
 	info_field = VM_BIT_VM_ENTRY_INT_INFO_UD;
 
 	sb_write_vmcs(VM_CTRL_VM_ENTRY_INT_INFO_FIELD, info_field);
@@ -3606,15 +3697,22 @@ static void sb_vm_exit_callback_ldtr_tr(int cpu_id, struct sb_vm_exit_guest_regi
 static void sb_vm_exit_callback_ept_violation(int cpu_id, struct sb_vm_exit_guest_register*
 	guest_context, u64 exit_reason, u64 exit_qual, u64 guest_linear, u64 guest_physical)
 {
-	u64 log_addr;
 	u64 cr0;
 
-	sb_printf(LOG_LEVEL_ERROR, LOG_ERROR "VM [%d] Memory attack is detected, "
-		"guest linear=%016lX guest physical=%016X virt_to_phys=%016lX\n",
-		cpu_id, guest_linear, guest_physical, virt_to_phys((void*)guest_linear));
+	/* Support suspend and hibernation. */
+	if (guest_linear == (u64) sb_system_sleep_notify)
+	{
+		sb_set_ept_all_access_page(guest_physical);
+		sb_trigger_shutdown_timer();
+		return ;
+	}
 
 	if (sb_is_system_shutdowning() == 0)
 	{
+		sb_printf(LOG_LEVEL_ERROR, LOG_ERROR "VM [%d] Memory attack is detected, "
+			"guest linear=%016lX guest physical=%016X virt_to_phys=%016lX\n",
+			cpu_id, guest_linear, guest_physical, virt_to_phys((void*)guest_linear));
+
 		/* If the address is in workaround area, set all permission to the page */
 		if (sb_is_workaround_addr(guest_physical) == 1)
 		{
@@ -3640,10 +3738,9 @@ static void sb_vm_exit_callback_ept_violation(int cpu_id, struct sb_vm_exit_gues
 	}
 	else
 	{
-		log_addr = (u64)phys_to_virt(guest_physical);
-		if (sb_is_addr_in_kernel_ro_area((void*)log_addr) == 0)
+		if (sb_is_addr_in_kernel_ro_area((void*)guest_linear) == 0)
 		{
-			sb_set_ept_all_access_page(guest_physical);
+			sb_set_ept_read_only_page(guest_physical);
 		}
 	}
 }
