@@ -44,6 +44,7 @@ volatile u64 g_last_dkom_check_jiffies = 0;
 static struct sb_task_manager g_task_manager;
 static struct sb_module_manager g_module_manager;
 static spinlock_t g_time_lock;
+static spinlock_t g_module_lock;
 static volatile u64 g_tasklock_fail_count = 0;
 static volatile u64 g_modulelock_fail_count = 0;
 static int g_vfs_object_attack_detected = 0;
@@ -159,6 +160,7 @@ void sb_protect_shadow_watcher_data(void)
 void sb_init_shadow_watcher(int reinitialize)
 {
 	spin_lock_init(&g_time_lock);
+	spin_lock_init(&g_module_lock);
 
 	sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "Framework Initailize\n");
 
@@ -244,10 +246,10 @@ static void sb_check_sw_module_periodic(int cpu_id)
 		return ;
 	}
 
-	if(mutex_trylock(&module_mutex))
+	if (spin_trylock(&g_module_lock))
 	{
 		sb_check_sw_module_list(cpu_id);
-		mutex_unlock(&module_mutex);
+		spin_unlock(&g_module_lock);
 	}
 	else
 	{
@@ -569,14 +571,6 @@ void sb_sw_callback_insmod(int cpu_id, struct sb_vm_exit_guest_register* context
 	struct list_head* mod_head_node;
 
 	mod_head_node = g_modules_ptr;
-	while (!mutex_trylock(&module_mutex))
-	{
-		sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "VM [%d] ==== Module Insmod Lock Fail ===\n",
-			cpu_id);
-		sb_pause_loop();
-		g_modulelock_fail_count++;
-	}
-
 	if (g_module_count == 0)
 	{
 		goto EXIT;
@@ -591,12 +585,16 @@ void sb_sw_callback_insmod(int cpu_id, struct sb_vm_exit_guest_register* context
 		"current PID=%d PPID=%d process name=%s module=%s\n", cpu_id,
 		current->pid, current->parent->pid, current->comm, mod->name);
 
+	spin_lock(&g_module_lock);
+
 	/* Add module without protect option. */
 	sb_add_module_to_sw_module_manager(mod, 0);
 	sb_check_sw_module_list(cpu_id);
 
+	spin_unlock(&g_module_lock);
+
 EXIT:
-	mutex_unlock(&module_mutex);
+	return ;
 }
 
 /*
@@ -609,14 +607,6 @@ void sb_sw_callback_rmmod(int cpu_id, struct sb_vm_exit_guest_register* context)
 	struct module* mod;
 	u64 mod_base;
 	u64 mod_ro_size;
-
-	while (!mutex_trylock(&module_mutex))
-	{
-		sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "VM [%d] ==== Module Rmmod Lock Fail ===\n",
-			cpu_id);
-		sb_pause_loop();
-		g_modulelock_fail_count++;
-	}
 
 	if (g_module_count == 0)
 	{
@@ -650,8 +640,12 @@ void sb_sw_callback_rmmod(int cpu_id, struct sb_vm_exit_guest_register* context)
 			"current PID=%d PPID=%d process name=%s module=%s\n", cpu_id,
 			current->pid, current->parent->pid, current->comm, mod->name);
 
+		spin_lock(&g_module_lock);
+
 		sb_check_sw_module_list(cpu_id);
 		sw_del_module_from_sw_module_manager(mod);
+
+		spin_unlock(&g_module_lock);
 	}
 	else
 	{
@@ -664,7 +658,7 @@ void sb_sw_callback_rmmod(int cpu_id, struct sb_vm_exit_guest_register* context)
 	}
 
 EXIT:
-	mutex_unlock(&module_mutex);
+	return ;
 }
 
 #if SHADOWBOX_USE_WATCHER_DEBUG
@@ -735,22 +729,24 @@ static int sb_check_sw_module_list(int cpu_id)
  */
 static int sb_get_module_count(void)
 {
-	struct list_head *pos, *node;
+	struct list_head *node;
 	int count = 0;
 	struct module* cur;
 
 	node = g_modules_ptr;
 
-	list_for_each(pos, node)
+	/* Synchronize before introspection. */
+	sb_sync_sw_page((u64)(node->next), sizeof(struct list_head));
+
+	list_for_each_entry_rcu(cur, node, list)
 	{
-		cur = container_of(pos, struct module, list);
 		if (cur != NULL)
 		{
 			sb_sync_sw_page((u64)cur, sizeof(cur));
 
 			sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "kernel module %s, list ptr %016lX, "
-				"phy %016lX module ptr %016lX, phy %016lX\n", cur->name, pos,
-				virt_to_phys(pos), cur, virt_to_phys(pos));
+				"phy %016lX module ptr %016lX\n", cur->name, &(cur->list),
+				virt_to_phys(&(cur->list)), cur);
 		}
 		count++;
 	}
@@ -763,7 +759,7 @@ static int sb_get_module_count(void)
  */
 static int sb_is_in_module_list(struct module* target)
 {
-	struct list_head *pos, *node;
+	struct list_head *node;
 	struct module* cur;
 	int find = 0;
 
@@ -772,9 +768,8 @@ static int sb_is_in_module_list(struct module* target)
 	/* Synchronize before introspection. */
 	sb_sync_sw_page((u64)(node->next), sizeof(struct list_head));
 
-	list_for_each(pos, node)
+	list_for_each_entry_rcu(cur, node, list)
 	{
-		cur = container_of(pos, struct module, list);
 		sb_sync_sw_page((u64)cur, sizeof(cur));
 		if (cur == target)
 		{
@@ -782,7 +777,7 @@ static int sb_is_in_module_list(struct module* target)
 			break;
 		}
 
-		sb_sync_sw_page((u64)(pos->next), sizeof(struct list_head));
+		sb_sync_sw_page((u64)(cur->list.next), sizeof(struct list_head));
 	}
 
 	return find;
@@ -895,13 +890,11 @@ static int sb_add_module_to_sw_module_manager(struct module *mod, int protect)
 static void sb_copy_module_list_to_sw_module_manager(void)
 {
 	struct module *mod;
-	struct list_head *pos, *node;
+	struct list_head *node;
 
 	node = g_modules_ptr;
-	list_for_each(pos, node)
+	list_for_each_entry_rcu(mod, node, list)
 	{
-		mod = container_of(pos, struct module, list);
-
 #if SHADOWBOX_USE_HIDE_MODULE
 		if (mod == THIS_MODULE)
 		{
