@@ -24,6 +24,13 @@
 #define TASK_NODE_MAX		(PID_MAX_LIMIT)
 #define MODULE_NODE_MAX		(10000)
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 19, 0)
+#define GET_D_INODE_FROM_FILE_PTR(x)	((x)->f_dentry->d_inode)
+#else
+#define GET_D_INODE_FROM_FILE_PTR(x)	((x)->f_path.dentry->d_inode)
+#endif
+
+
 /* Task information structure. */
 struct sb_task_node
 {

@@ -405,7 +405,7 @@
 /* VM exit interrupt information fields and vector. */
 #define VM_EXIT_INT_INFO_INT_TYPE(info)				(((info) >> 8) & 0x07)
 #define VM_EXIT_INT_INFO_VECTOR(info)				((info) & 0xFF)
- 
+
 /* VM exit interrupt type. */
 #define VM_EXIT_INT_TYPE_EXT						0
 #define VM_EXIT_INT_TYPE_NMI						2
@@ -549,7 +549,7 @@
 #define CR4_BIT_MCE								((u64)0x01 << 6)
 #define CR4_BIT_VMXE							((u64)0x01 << 13)
 #define CR4_BIT_SMXE							((u64)0x01 << 14)
- 
+
 /* Shadow-box error codes. */
 #define ERROR_SUCCESS							0
 #define ERROR_NOT_START						 	1
@@ -756,34 +756,6 @@ struct sb_share_context
 {
 	atomic_t shutdown_flag;
 	atomic_t shutdown_complete_count;
-};
-
-/* Workaround information structure. */
-struct sb_workaround
-{
-	u64 addr_array[WORK_AROUND_MAX_COUNT];
-	int count_array[WORK_AROUND_MAX_COUNT];
-};
-
-/* Read-only information entry structure. */
-struct ro_addr_struct
-{
-	u64 start;
-	u64 end;
-	u64 type;
-};
-
-/* Predefined symbol entry structure. */
-struct sb_symbol_addr_struct
-{
-	char* name;
-	u64 addr;
-};
-
-/* Predefined symbol structure. */
-struct sb_symbol_table_struct
-{
-	struct sb_symbol_addr_struct symbol[SYMBOL_MAX_COUNT];
 };
 
 /* Shadow-box memory pool structure. */

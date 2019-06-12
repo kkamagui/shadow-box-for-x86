@@ -49,6 +49,7 @@
 #include "mmu.h"
 #include "iommu.h"
 #include "asm.h"
+#include "workaround.h"
 #include "symbol.h"
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 19, 0)
@@ -1107,7 +1108,7 @@ static int sb_check_gdtr(int cpu_id)
 				(gdt->type == GDT_TYPE_64BIT_TRAP_GATE))
 			{
 				sb_printf(LOG_LEVEL_NORMAL, LOG_INFO "VM [%d] index %d low %08X"
-					" high %08X\n", cpu_id, i, gdt->a, gdt->b);
+					" high %08X\n", cpu_id, i, *((u32*)gdt), *((u32*)gdt + 1));
 
 				result = -1;
 				break;
@@ -1455,7 +1456,7 @@ static void sb_protect_gdt(int cpu_id)
 	struct desc_ptr idtr;
 
 	native_store_gdt(&(g_gdtr_array[cpu_id]));
-	native_store_idt(&idtr);
+	store_idt(&idtr);
 
 	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "VM[%d] Protect GDT IDT\n", cpu_id);
 	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "VM[%d]    [*] GDTR Base %16lX, Size %d\n",
@@ -2012,10 +2013,12 @@ static void sb_dup_page_table_for_host(int reinitialize)
 
 	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "Duplicate page tables\n");
 
-	org_pml4 = (struct sb_pagetable*)sb_get_symbol_address("init_level4_pgt");
+	org_pml4 = (struct sb_pagetable*)sb_get_symbol_address(INIT_LEVEL4_PGT);
 	g_vm_init_phy_pml4 = virt_to_phys(org_pml4);
 	swapper_mm = (struct mm_struct*)sb_get_symbol_address("init_mm");
-	sb_printf(LOG_LEVEL_DEBUG, LOG_INFO "init_mm %016lX\n", swapper_mm);
+	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "init_mm %016lX, %s %016lX\n",
+		swapper_mm->pgd, INIT_LEVEL4_PGT, org_pml4);
+
 	vm_pml4 =  (struct sb_pagetable*)__get_free_pages(GFP_KERNEL_ACCOUNT |
 		__GFP_ZERO, PGD_ALLOCATION_ORDER);
 #if SHADOWBOX_USE_EPT
@@ -3803,7 +3806,7 @@ static void sb_setup_vm_host_register(struct sb_vm_host_register* sb_vm_host_reg
 	struct desc_ptr gdtr;
 	struct desc_ptr idtr;
 	struct desc_struct* gdt;
-	struct ldttss_desc64* tss;
+	LDTTSS_DESC* tss;
 	u64 base0 = 0;
 	u64 base1 = 0;
 	u64 base2 = 0;
@@ -3820,7 +3823,7 @@ static void sb_setup_vm_host_register(struct sb_vm_host_register* sb_vm_host_reg
 	memset(vm_exit_stack, 0, stack_size);
 
 	native_store_gdt(&gdtr);
-	native_store_idt(&idtr);
+	store_idt(&idtr);
 
 	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "VM [%d] Setup Host Register\n", cpu_id);
 	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] GDTR Address %016lX\n",
@@ -3836,7 +3839,7 @@ static void sb_setup_vm_host_register(struct sb_vm_host_register* sb_vm_host_reg
 		gdt = (struct desc_struct*)(gdtr.address + i * 8);
 		sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] GDT Index %d\n", i);
 		sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "    [*] GDT High %08X, Low %08X\n",
-			gdt->b, gdt->a);
+			*((u32*)gdt + 1), *((u32*)gdt));
 	}
 
 	sb_vm_host_register->cr0 = sb_get_cr0();
@@ -3859,7 +3862,7 @@ static void sb_setup_vm_host_register(struct sb_vm_host_register* sb_vm_host_reg
 	sb_vm_host_register->fs_base_addr = sb_rdmsr(MSR_FS_BASE_ADDR);
 	sb_vm_host_register->gs_base_addr = sb_rdmsr(MSR_GS_BASE_ADDR);
 
-	tss = (struct ldttss_desc64*)(gdtr.address +
+	tss = (LDTTSS_DESC*)(gdtr.address +
 		(sb_vm_host_register->tr_selector & ~MASK_GDT_ACCESS));
 	base0 = tss->base0;
 	base1 = tss->base1;
@@ -3891,8 +3894,8 @@ static void sb_setup_vm_guest_register(struct sb_vm_guest_register*
 	struct desc_ptr gdtr;
 	struct desc_ptr idtr;
 	struct desc_struct* gdt;
-	struct ldttss_desc64* ldt;
-	struct ldttss_desc64* tss;
+	LDTTSS_DESC* ldt;
+	LDTTSS_DESC* tss;
 	u64 base0 = 0;
 	u64 base1 = 0;
 	u64 base2 = 0;
@@ -3908,7 +3911,7 @@ static void sb_setup_vm_guest_register(struct sb_vm_guest_register*
 	cpu_id = smp_processor_id();
 
 	native_store_gdt(&gdtr);
-	native_store_idt(&idtr);
+	store_idt(&idtr);
 
 	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "VM [%d] Setup Guest Register\n", cpu_id);
 
@@ -3974,7 +3977,7 @@ static void sb_setup_vm_guest_register(struct sb_vm_guest_register*
 	}
 	else
 	{
-		ldt = (struct ldttss_desc64*)(gdtr.address +
+		ldt = (LDTTSS_DESC*)(gdtr.address +
 			(sb_vm_guest_register->ldtr_selector & ~MASK_GDT_ACCESS));
 		base0 = ldt->base0;
 		base1 = ldt->base1;
@@ -3990,7 +3993,7 @@ static void sb_setup_vm_guest_register(struct sb_vm_guest_register*
 	}
 	else
 	{
-		tss = (struct ldttss_desc64*)(gdtr.address +
+		tss = (LDTTSS_DESC*)(gdtr.address +
 			(sb_vm_guest_register->tr_selector & ~MASK_GDT_ACCESS));
 		base0 = tss->base0;
 		base1 = tss->base1;
@@ -4013,7 +4016,7 @@ static void sb_setup_vm_guest_register(struct sb_vm_guest_register*
 	}
 	else
 	{
-		ldt = (struct ldttss_desc64*)(gdtr.address +
+		ldt = (LDTTSS_DESC*)(gdtr.address +
 			(sb_vm_guest_register->ldtr_selector & ~MASK_GDT_ACCESS));
 		qwLimit0 = ldt->limit0;
 		qwLimit1 = ldt->limit1;
@@ -4026,7 +4029,7 @@ static void sb_setup_vm_guest_register(struct sb_vm_guest_register*
 	}
 	else
 	{
-		tss = (struct ldttss_desc64*)(gdtr.address +
+		tss = (LDTTSS_DESC*)(gdtr.address +
 			(sb_vm_guest_register->tr_selector & ~MASK_GDT_ACCESS));
 		qwLimit0 = tss->limit0;
 		qwLimit1 = tss->limit1;
@@ -4052,10 +4055,10 @@ static void sb_setup_vm_guest_register(struct sb_vm_guest_register*
 	}
 	else
 	{
-		ldt = (struct ldttss_desc64*)(gdtr.address +
+		ldt = (LDTTSS_DESC*)(gdtr.address +
 			(sb_vm_guest_register->ldtr_selector & ~MASK_GDT_ACCESS));
 		gdt = (struct desc_struct*)ldt;
-		access = gdt->b >> 8;
+		access = *((u32*)gdt + 1) >> 8;
 
 		/* type: 4, s: 1, dpl: 2, p: 1; limit: 4, avl: 1, l: 1, d: 1, g: 1, base2: 8 */
 		sb_vm_guest_register->ldtr_access = access & 0xF0FF;
@@ -4067,10 +4070,10 @@ static void sb_setup_vm_guest_register(struct sb_vm_guest_register*
 	}
 	else
 	{
-		tss = (struct ldttss_desc64*)(gdtr.address +
+		tss = (LDTTSS_DESC*)(gdtr.address +
 			(sb_vm_guest_register->tr_selector & ~MASK_GDT_ACCESS));
 		gdt = (struct desc_struct*)tss;
-		access = gdt->b >> 8;
+		access = *((u32*)gdt + 1) >> 8;
 
 		/* type: 4, s: 1, dpl: 2, p: 1; limit: 4, avl: 1, l: 1, d: 1, g: 1, base2: 8 */
 		sb_vm_guest_register->tr_access = access & 0xF0FF;
@@ -4780,7 +4783,7 @@ static u64 sb_get_desc_access(u64 offset)
 
 	native_store_gdt(&gdtr);
 	gdt = (struct desc_struct*)(gdtr.address + (offset & ~MASK_GDT_ACCESS));
-	access = gdt->b >> 8;
+	access = *((u32*)gdt + 1) >> 8;
 
 	/* type: 4, s: 1, dpl: 2, p: 1; limit: 4, avl: 1, l: 1, d: 1, g: 1, base2: 8 */
 	total_access = access & 0xF0FF;
