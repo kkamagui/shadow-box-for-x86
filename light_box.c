@@ -1760,7 +1760,7 @@ u64 sb_sync_page_table(u64 addr)
 		init_pml4->entry[pml4_index]);
 
 	/*
-	 * Get PDPTE_PD from PML4
+	 * Get PDPTE_PD from PML4.
 	 */
 	init_pdpte_pd = (struct sb_pagetable*)(init_pml4->entry[pml4_index]);
 	if ((init_pdpte_pd == 0) || ((u64)init_pdpte_pd & MASK_PAGE_SIZE_FLAG))
@@ -1770,15 +1770,14 @@ u64 sb_sync_page_table(u64 addr)
 #if SHADOWBOX_USE_PAGE_DEBUG
 		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "===================INFO======================");
 		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "PML4 addr = %016lX sync\n", addr);
-		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "===================INFO======================");
-
 		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "PDPTE_PD has size flags or 0\n");
+		sb_printf(LOG_LEVEL_ERROR, LOG_INFO "===================INFO======================");
 
 		while(1)
 		{
 			sb_pause_loop();
 		}
-#endif
+#endif /* SHADOWBOX_USE_PAGE_DEBUG */
 		goto EXIT;
 	}
 
@@ -1802,7 +1801,7 @@ u64 sb_sync_page_table(u64 addr)
 		{
 			sb_pause_loop();
 		}
-#endif
+#endif /* SHADOWBOX_USE_PAGE_DEBUG */
 	}
 
 	init_pdpte_pd = phys_to_virt((u64)init_pdpte_pd & ~(MASK_PAGEFLAG));
@@ -1810,7 +1809,7 @@ u64 sb_sync_page_table(u64 addr)
 	vm_pdpte_pd = phys_to_virt((u64)vm_pdpte_pd & ~(MASK_PAGEFLAG));
 
 	/*
-	 * Get PDEPT from PDPTE_PD
+	 * Get PDEPT from PDPTE_PD.
 	 */
 	init_pdept = (struct sb_pagetable*)(init_pdpte_pd->entry[pdpte_pd_index]);
 
@@ -1824,28 +1823,24 @@ u64 sb_sync_page_table(u64 addr)
 		{
 			vm_pdpte_pd->entry[pdpte_pd_index] = (u64)init_pdept;
 
+#if SHADOWBOX_USE_PAGE_DEBUG
 			sb_printf(LOG_LEVEL_ERROR, LOG_INFO "===================INFO======================");
 			sb_printf(LOG_LEVEL_ERROR, LOG_INFO "PDEPT addr = %016lX sync\n", addr);
 			sb_printf(LOG_LEVEL_ERROR, LOG_INFO "PDEPT has size flags or 0, Logical %016lX, "
 				"Physical %016lX\n", addr, init_pdept);
 			sb_printf(LOG_LEVEL_ERROR, LOG_INFO "===================INFO======================");
 
-#if SHADOWBOX_USE_PAGE_DEBUG
 			while(1)
 			{
 				sb_pause_loop();
 			}
-#endif
-		}
-		else
-		{
-			sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "PDEPT is same");
+#endif /* SHADOWBOX_USE_PAGE_DEBUG */
 		}
 
 		goto EXIT;
 	}
 
-	/* If PDEPT exist, syncronize the flag */
+	/* If PDEPT exist, syncronize the flag. */
 	if (vm_is_new_page_table_needed(vm_pdpte_pd, init_pdpte_pd, pdpte_pd_index) == 1)
 	{
 		value = vm_check_alloc_page_table(vm_pdpte_pd, pdpte_pd_index);
@@ -1866,7 +1861,7 @@ u64 sb_sync_page_table(u64 addr)
 		{
 			sb_pause_loop();
 		}
-#endif
+#endif /* SHADOWBOX_USE_PAGE_DEBUG */
 	}
 
 	init_pdept = phys_to_virt((u64)init_pdept & ~(MASK_PAGEFLAG));
@@ -1874,7 +1869,7 @@ u64 sb_sync_page_table(u64 addr)
 	vm_pdept = phys_to_virt((u64)vm_pdept & ~(MASK_PAGEFLAG));
 
 	/*
-	 * Get PTE from PDPTE_PD
+	 * Get PTE from PDPTE_PD.
 	 */
 	init_pte = (struct sb_pagetable*)(init_pdept->entry[pdept_index]);
 	sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "PDEPT index %d %016lX %016lX %016lX\n", pdept_index, vm_pdept, init_pdept, init_pdept->entry[pdept_index]);
@@ -1885,28 +1880,24 @@ u64 sb_sync_page_table(u64 addr)
 		{
 			vm_pdept->entry[pdept_index] = (u64)init_pte;
 
+#if SHADOWBOX_USE_PAGE_DEBUG
 			sb_printf(LOG_LEVEL_ERROR, LOG_INFO "===================INFO======================");
 			sb_printf(LOG_LEVEL_ERROR, LOG_INFO "PDEPT addr = %016lX sync\n", addr);
 			sb_printf(LOG_LEVEL_ERROR, LOG_INFO "PTE has size flags or 0, Logical %016lX, "
 				"Physical %016lX\n", addr, init_pte);
 			sb_printf(LOG_LEVEL_ERROR, LOG_INFO "===================INFO======================");
 
-#if SHADOWBOX_USE_PAGE_DEBUG
 			while(1)
 			{
 				sb_pause_loop();
 			}
-#endif
-		}
-		else
-		{
-			sb_printf(LOG_LEVEL_DETAIL, LOG_INFO "PDEPT is same");
+#endif /* SHADOWBOX_USE_PAGE_DEBUG */
 		}
 
 		goto EXIT;
 	}
 
-	/* If PTE exist, syncronize the flag */
+	/* If PTE exist, syncronize the flag. */
 	if (vm_is_new_page_table_needed(vm_pdept, init_pdept, pdept_index) == 1)
 	{
 		value = vm_check_alloc_page_table(vm_pdept, pdept_index);
@@ -1927,7 +1918,7 @@ u64 sb_sync_page_table(u64 addr)
 		{
 			sb_pause_loop();
 		}
-#endif
+#endif /* SHADOWBOX_USE_PAGE_DEBUG */
 
 	}
 	init_pte = phys_to_virt((u64)init_pte & ~(MASK_PAGEFLAG));
@@ -1964,14 +1955,14 @@ u64 sb_sync_page_table(u64 addr)
 			sb_pause_loop();
 		}
 	}
-#endif
+#endif /* SHADOWBOX_USE_PAGE_DEBUG */
 
-	/* Copy PTE from the guest */
+	/* Copy PTE from the guest. */
 	vm_pte->entry[pte_index] = init_pte->entry[pte_index];
 
 EXIT:
 
-	/* Update page table to CPU */
+	/* Update page table to CPU. */
 	sb_set_cr3(g_vm_host_phy_pml4);
 	return expand_value;
 }
