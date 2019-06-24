@@ -585,7 +585,7 @@
 
 /* Define for kernel version workaround. */
 #ifndef PGD_ALLOCATION_ORDER
-#define PGD_ALLOCATION_ORDER 					0
+#define PGD_ALLOCATION_ORDER 					1
 #endif
 
 /* Define Shadow-box hide modes. */
